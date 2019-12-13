@@ -1,0 +1,8 @@
+*.DS_Store
+*.log
+/tmp
+*.code-workspace
+/.vscode
+/src
+Pipfile*
+*.side
