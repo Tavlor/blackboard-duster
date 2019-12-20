@@ -8,7 +8,7 @@ Python Version: 3.7
 Notes:
 TODO:
     - restructure selenium generated code
-    - user login
+    - delay until user has logged in
     - click past cookie notice if needed
 ~*~ """
 
@@ -20,27 +20,36 @@ import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 
+global args
+global driver
 
-def __argparse_setup():
-    psr = argparse.ArgumentParser(
-        description='Scrapes files from Blackboard classes')
-    psr.add_argument('bb_url', metavar='BB_base_URL',
-                     help='URL for your Blackboard instance.')
-    psr.add_argument('-d', '--dir', metavar='download path',
-                     help='directory to save your downloads in',
-                     default='.')
-    # psr.add_argument('-l', '--log', metavar='level',type=int,
-    #                  action='store',default=6,
-    #                  help='Priority level for logging. 1:debug, 2:info, '
-    #                  '3:warning, 4:error, 5:critical. '
-    #                  'Any value > 5 disables logging')
-    # psr.add_argument('-p', '--print', metavar='level',type=int,
-    #                  action='store',default=0,
-    #                  help='Priority level for printing, see --log.')
-    # psr.add_argument('-b', '--browser', metavar='level',
-    #                  help='browser to use.')
-
-    return psr
+def argparse_setup():
+    global args
+    parser = argparse.ArgumentParser(
+        description='Scrapes files from Blackboard courses')
+    parser.add_argument(
+        'bb_url', metavar='BB_base_URL',
+        help='URL for your Blackboard instance.')
+    parser.add_argument(
+        '-d', '--dir', metavar='download path', default='.',
+        help='directory to save your downloads in')
+    parser.add_argument(
+        '-s', '--sleep', metavar='sleep_time', type=int, default=5,
+        help='base amount of time for delays, in seconds')
+    # parser.add_argument(
+    #    '-l', '--log', metavar='level',type=int,
+    #    action='store',default=6,
+    #    help='Priority level for logging. 1:debug, 2:info, '
+    #    '3:warning, 4:error, 5:critical. '
+    #    'Any value > 5 disables logging')
+    # parser.add_argument(
+    #    '-p', '--print', metavar='level',type=int,
+    #    action='store',default=0,
+    #    help='Priority level for printing, see --log.')
+    # parser.add_argument(
+    #    '-b', '--browser', metavar='level',
+    #    help='browser to use.')
+    args = parser.parse_args()
 # end argparse_setup()
 
 
@@ -81,26 +90,29 @@ def __argparse_setup():
 #         By.CSS_SELECTOR, "#anonymous_element_8 > a > span").click()
 #     driver.find_element(By.CSS_SELECTOR, ".read").click()
 #     driver.close()
-
+def sleep(mult):
+    global args
+    time.sleep(args.sleep * mult)
 
 def main():
-
-    parser = __argparse_setup()
-    args = parser.parse_args()
+    global args
+    global driver
+    argparse_setup()
     driver = webdriver.Firefox()
-
     driver.get(args.bb_url)
     driver.set_window_size(850, 700)
-    #
-    driver.find_element(By.ID, "agree_button").click()
 
     # user inputs ID and password via terminal
-    print('NetID: ', end ='')
+    print('NetID: ', end='')
     email = input().strip()
     password = getpass.getpass().strip()
-    driver.find_element(By.ID, "netID").send_keys(email)
+    driver.find_element(By.ID, "netid").send_keys(email)
     driver.find_element(By.ID, "password").send_keys(password)
     driver.find_element(By.ID, "submit").click()
+    # allow page time to load, a few seconds
+
+    # bypass cookie warning, if it appears
+    driver.find_element(By.ID, "agree_button").click()
 
     driver.quit()
 
