@@ -8,12 +8,13 @@ Python Version: 3.7
 Notes:
 TODO:
     - restructure selenium generated code
+    - iterate over courses
+    - iterate over course homepage elements
 ~*~ """
 
 import argparse
 import getpass
 import json
-# import pytest
 import time
 
 from selenium import webdriver
@@ -65,17 +66,6 @@ def argparse_setup():
 
 
 # def test_basicPDFdownload():
-#     # 4 | click | linkText=asdf
-#     driver.find_element(
-#         By.LINK_TEXT, "asdf").click()
-#     # 5 | click | id=menuPuller |  |
-#     driver.find_element(By.ID, "menuPuller").click()
-#     # 6 | click | css=#paletteItem\3A_1153658_1 span |  |
-#     driver.find_element(
-#         By.CSS_SELECTOR, "#paletteItem\\3A_1153658_1 span").click()
-#     # 7 | click | css=#anonymous_element_8 > a > span |  |
-#     vars["window_handles"] = driver.window_handles
-#     # 8 | storeWindowHandle | root |  |
 #     driver.find_element(
 #         By.CSS_SELECTOR, "#anonymous_element_8 > a > span").click()
 #     # 9 | selectWindow | handle=${win5193} |  |
@@ -101,24 +91,22 @@ def sleep(seconds):
     time.sleep(args.delay * seconds)
 
 
-def main():
-    global args
-    global driver
-    argparse_setup()
-    driver = webdriver.Firefox()
-    driver.get(args.bb_url)
-    driver.set_window_size(850, 700)
+def manual_login():
+    """allow user to signs in manually
 
-    # user signs in manualy - script waits until the homepage appears
+     waits until the Blackboard homepage appears, returns nothing
+     """
     print('Please log into your university Blackboard account - I will'
-        ' wait for you to reach the home page!')
+          ' wait for you to reach the home page!')
+    # looking for "Welcome, #### – Blackboard Learn" (the dash is NOT a
+    # minus sign!)
     while not driver.title.startswith('Welcome, ') or \
             not driver.title.endswith(' – Blackboard Learn'):
-        # looking for "Welcome, #### – Blackboard Learn" (the dash is
-        # NOT a minus sign!)
         pass
-    # bypass cookie warning, if it appears
-    print('Alright, I can drive from here.')
+
+
+def accept_cookies():
+    """if the cookie notice appears, click 'accept'"""
     try:
         element = WebDriverWait(driver, args.delay * 10).until(
             EC.presence_of_element_located((By.ID, 'agree_button'))
@@ -127,6 +115,19 @@ def main():
         element.click()
     except TimeoutException:
         print('I did not see a cookie notice.')
+
+
+def main():
+    global args
+    global driver
+    argparse_setup()
+    driver = webdriver.Firefox()
+    driver.get(args.bb_url)
+    # the course sidebar is invisible in range [320,1024]
+    driver.set_window_size(1030, 700)
+    manual_login()
+    print('Alright, I can drive from here.')
+    accept_cookies()
     print('That was all I could find! You should probably double check.')
     driver.quit()
 
