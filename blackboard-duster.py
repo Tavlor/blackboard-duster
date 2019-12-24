@@ -8,20 +8,23 @@ Python Version: 3.7
 Notes:
 TODO:
     - restructure selenium generated code
-    - delay until user has logged in
-    - click past cookie notice if needed
 ~*~ """
 
 import argparse
 import getpass
 import json
-#import pytest
+# import pytest
 import time
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 global args
 global driver
+
 
 def argparse_setup():
     global args
@@ -31,11 +34,11 @@ def argparse_setup():
         'bb_url', metavar='BB_base_URL',
         help='URL for your Blackboard instance.')
     parser.add_argument(
-        '-d', '--dir', metavar='download path', default='.',
+        '-s', '--save', metavar='save_path', default='.',
         help='directory to save your downloads in')
     parser.add_argument(
-        '-s', '--sleep', metavar='sleep_time', type=int, default=5,
-        help='base amount of time for delays, in seconds')
+        '-d', '--delay', metavar='delay_mult', type=int, default=1,
+        help='multiplier for sleep/delays')
     # parser.add_argument(
     #    '-l', '--log', metavar='level',type=int,
     #    action='store',default=6,
@@ -90,9 +93,13 @@ def argparse_setup():
 #         By.CSS_SELECTOR, "#anonymous_element_8 > a > span").click()
 #     driver.find_element(By.CSS_SELECTOR, ".read").click()
 #     driver.close()
-def sleep(mult):
+
+
+def sleep(seconds):
+    """uses global multiplier to delay the script"""
     global args
-    time.sleep(args.sleep * mult)
+    time.sleep(args.delay * seconds)
+
 
 def main():
     global args
@@ -102,18 +109,25 @@ def main():
     driver.get(args.bb_url)
     driver.set_window_size(850, 700)
 
-    # user inputs ID and password via terminal
-    print('NetID: ', end='')
-    email = input().strip()
-    password = getpass.getpass().strip()
-    driver.find_element(By.ID, "netid").send_keys(email)
-    driver.find_element(By.ID, "password").send_keys(password)
-    driver.find_element(By.ID, "submit").click()
-    # allow page time to load, a few seconds
-
+    # user signs in manualy - script waits until the homepage appears
+    print('Please log into your university Blackboard account - I will'
+        ' wait for you to reach the home page!')
+    while not driver.title.startswith('Welcome, ') or \
+            not driver.title.endswith(' – Blackboard Learn'):
+        # looking for "Welcome, #### – Blackboard Learn" (the dash is
+        # NOT a minus sign!)
+        pass
     # bypass cookie warning, if it appears
-    driver.find_element(By.ID, "agree_button").click()
-
+    print('Alright, I can drive from here.')
+    try:
+        element = WebDriverWait(driver, args.delay * 10).until(
+            EC.presence_of_element_located((By.ID, 'agree_button'))
+        )
+        print('I am accepting the cookie notice, I hope that is ok!')
+        element.click()
+    except TimeoutException:
+        print('I did not see a cookie notice.')
+    print('That was all I could find! You should probably double check.')
     driver.quit()
 
 # end main()
