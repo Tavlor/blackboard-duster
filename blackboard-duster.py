@@ -20,6 +20,7 @@ import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -57,34 +58,6 @@ def argparse_setup():
 # end argparse_setup()
 
 
-# def wait_for_window(driver, timeout=2):
-#     time.sleep(round(timeout / 1000))
-#     wh_now = driver.window_handles
-#     wh_then = vars["window_handles"]
-#     if len(wh_now) > len(wh_then):
-#         return set(wh_now).difference(set(wh_then)).pop()
-
-
-# def test_basicPDFdownload():
-#     driver.find_element(
-#         By.CSS_SELECTOR, "#anonymous_element_8 > a > span").click()
-#     # 9 | selectWindow | handle=${win5193} |  |
-#     vars["win5193"] = wait_for_window(2000)
-#     # 10 | close |  |  |
-#     vars["root"] = driver.current_window_handle
-#     # 11 | selectWindow | handle=${root} |  |
-#     driver.switch_to.window(vars["win5193"])
-#     # 12 | click | css=#anonymous_element_8 > a > span |  |
-#     driver.close()
-#     # 13 | click | css=.read |  |
-#     driver.switch_to.window(vars["root"])
-#     # 14 | close |  |  |
-#     driver.find_element(
-#         By.CSS_SELECTOR, "#anonymous_element_8 > a > span").click()
-#     driver.find_element(By.CSS_SELECTOR, ".read").click()
-#     driver.close()
-
-
 def sleep(seconds):
     """uses global multiplier to delay the script"""
     global args
@@ -117,6 +90,16 @@ def accept_cookies():
         print('I did not see a cookie notice.')
 
 
+def get_courses_home():
+    """produces an array of URLs for each course's homepage"""
+    global driver
+    course_links = driver.find_elements_by_css_selector('div#div_25_1 a')
+    result = []
+    for link in course_links:
+        result.append(link.get_attribute('href'))
+    return result
+
+
 def main():
     global args
     global driver
@@ -128,9 +111,11 @@ def main():
     manual_login()
     print('Alright, I can drive from here.')
     accept_cookies()
+    course_urls = get_courses_home()
+    print('I found {0:d} courses.'.format(len(course_urls)))
+
     print('That was all I could find! You should probably double check.')
     driver.quit()
-
 # end main()
 
 
