@@ -7,15 +7,18 @@ Author: Taylor Smith, Winter 2019
 Python Version: 3.7
 Notes:
 TODO:
-    - restructure selenium generated code
-    - iterate over courses
-    - iterate over course homepage elements
+    - avoid redundant visit to course home page (just ignore it?)
+    - download items directly?
+    - make notes on where css selectors come from, so users can change
+        if needed
+    - ignore useless navpane elements - add custom ignore arg
+    - log downloaded items, so they can be ignored next time
 ~*~ """
 
 import argparse
 import getpass
 import json
-import time
+#import time
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -26,6 +29,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 global args
 global driver
+navpane_ignore = {'Announcements','Calendar','My Grades'}
 
 
 def argparse_setup():
@@ -58,10 +62,10 @@ def argparse_setup():
 # end argparse_setup()
 
 
-def sleep(seconds):
-    """uses global multiplier to delay the script"""
-    global args
-    time.sleep(args.delay * seconds)
+# def sleep(seconds):
+#     """uses global multiplier to delay the script"""
+#     global args
+#     time.sleep(args.delay * seconds)
 
 
 def manual_login():
@@ -81,7 +85,7 @@ def manual_login():
 def accept_cookies():
     """if the cookie notice appears, click 'accept'"""
     try:
-        element = WebDriverWait(driver, args.delay * 10).until(
+        element = WebDriverWait(driver, args.delay * 3).until(
             EC.presence_of_element_located((By.ID, 'agree_button'))
         )
         print('I am accepting the cookie notice, I hope that is ok!')
@@ -90,13 +94,37 @@ def accept_cookies():
         print('I did not see a cookie notice.')
 
 
-def get_courses_home():
-    """produces an array of URLs for each course's homepage"""
+def get_courses_info():
+    """produces an array of dicts with info about each course
+
+    each dict contains {'name', 'url'}
+    """
     global driver
     course_links = driver.find_elements_by_css_selector('div#div_25_1 a')
     result = []
     for link in course_links:
-        result.append(link.get_attribute('href'))
+        result.append({
+            'name': link.text,
+            'url': link.get_attribute('href')
+        })
+    return result
+
+
+def get_navpane_info():
+    """produces an array of dicts with info about each item in the navpane
+
+    each dict contains {'name', 'url'}
+    """
+    global driver
+    page_links = driver.find_elements_by_css_selector(
+        'ul#courseMenuPalette_contents a')
+    result = []
+    for link in page_links:
+        child = link.find_element_by_css_selector('span')
+        result.append({
+            'name': child.get_attribute('title'),
+            'url': link.get_attribute('href')
+        })
     return result
 
 
@@ -106,14 +134,30 @@ def main():
     argparse_setup()
     driver = webdriver.Firefox()
     driver.get(args.bb_url)
-    # the course sidebar is invisible in range [320,1024]
-    driver.set_window_size(1030, 700)
+    # choose a nice size - the navpane is invisible at small widths,
+    # but selenium can still see its elements
+    driver.set_window_size(850, 700)
     manual_login()
     print('Alright, I can drive from here.')
+    # TODO are links visible behind the cookie notice?
     accept_cookies()
-    course_urls = get_courses_home()
-    print('I found {0:d} courses.'.format(len(course_urls)))
+    courses = get_courses_info()
+    print('I found {0:d} courses. I will go through each one now!'
+          .format(len(courses)))
 
+    # iterate over each course
+    for course in courses:
+        print(course['name'])
+        driver.get(course['url'])
+        navpane = get_navpane_info()
+        for page in navpane:
+            # a few pages have no (downloadable) content, skip them
+            if page['name'] in navpane_ignore:
+                print('  *SKIPPED* ' + page['name'])
+                continue
+            #TODO skip emails page - different for each school
+            print('   ' + page['name'])
+            driver.get(page['url'])
     print('That was all I could find! You should probably double check.')
     driver.quit()
 # end main()
