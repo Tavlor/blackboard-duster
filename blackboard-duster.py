@@ -18,7 +18,6 @@ TODO:
 import argparse
 import getpass
 import json
-#import time
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -29,7 +28,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 global args
 global driver
-navpane_ignore = {'Announcements','Calendar','My Grades'}
+navpane_ignore = {'Announcements', 'Calendar', 'My Grades'}
 
 
 def argparse_setup():
@@ -62,10 +61,30 @@ def argparse_setup():
 # end argparse_setup()
 
 
-# def sleep(seconds):
-#     """uses global multiplier to delay the script"""
-#     global args
-#     time.sleep(args.delay * seconds)
+def wait_for_element(locator, delay_time=3, exit_on_fail=False,
+                     msg_success='', msg_fail=''):
+    """waits until given item appears, optionally exit on failure
+
+    locator is a tuple: (By.constant, string)
+    if messages are empty no newline will be generated
+    returns the element waited for
+    """
+    global args
+    global driver
+    element = None
+    try:
+        element = WebDriverWait(
+            driver, args.delay * delay_time).until(
+            EC.presence_of_element_located(locator))
+        if msg_success:
+            print(msg_success)
+    except TimeoutException:
+        if msg_fail:
+            print(msg_fail)
+        if exit_on_fail:
+            driver.quit()
+            exit()
+    return element
 
 
 def manual_login():
@@ -84,24 +103,45 @@ def manual_login():
 
 def accept_cookies():
     """if the cookie notice appears, click 'accept'"""
-    try:
-        element = WebDriverWait(driver, args.delay * 3).until(
-            EC.presence_of_element_located((By.ID, 'agree_button'))
-        )
-        print('I am accepting the cookie notice, I hope that is ok!')
-        element.click()
-    except TimeoutException:
-        print('I did not see a cookie notice.')
+    # try:
+    #     element = WebDriverWait(driver, args.delay * 3).until(
+    #         EC.presence_of_element_located((By.ID, 'agree_button'))
+    #     )
+    #     print('I am accepting the cookie notice, I hope that is ok!')
+    #     element.click()
+    # except TimeoutException:
+    #     print('I did not see a cookie notice.')
+    cookie_bttn = wait_for_element(
+        (By.ID, 'agree_button'),
+        msg_success='I am accepting the cookie notice, I hope that is ok!',
+        msg_fail='I did not see a cookie notice.')
+    if cookie_bttn is not None:
+        print("clicking cookie button!")
+        cookie_bttn.click
 
 
 def get_courses_info():
-    """produces an array of dicts with info about each course
+    """returns an array of dicts with info about each course
 
     each dict contains {'name', 'url'}
     """
     global driver
-    course_links = driver.find_elements_by_css_selector('div#div_25_1 a')
+    global args
     result = []
+    # try:
+    #     course_links=WebDriverWait(driver, args.delay * 5).until(
+    #         EC.presence_of_element_located((By.CSS_SELECTOR,
+    #                                         'div#div_25_1 a'))
+    #     )
+    # except TimeoutException:
+    #     print('I did not see your course list! Aborting')
+    #     driver.quit()
+    #     exit()
+    wait_for_element(
+        (By.CSS_SELECTOR, 'div#div_25_1 a'), exit_on_fail=True,
+        msg_fail='I did not see your course list! Aborting')
+    course_links = driver.find_elements_by_css_selector(
+        'div#div_25_1 a')
     for link in course_links:
         result.append({
             'name': link.text,
@@ -111,20 +151,71 @@ def get_courses_info():
 
 
 def get_navpane_info():
-    """produces an array of dicts with info about each item in the navpane
+    """returns an array of dicts for items in the navpane
 
     each dict contains {'name', 'url'}
     """
     global driver
+    wait_for_element(
+        (By.CSS_SELECTOR, 'ul#courseMenuPalette_contents'),
+        exit_on_fail=True,
+        msg_fail='I could not access the navpane! Aborting')
     page_links = driver.find_elements_by_css_selector(
         'ul#courseMenuPalette_contents a')
     result = []
     for link in page_links:
-        child = link.find_element_by_css_selector('span')
+        title = link.find_element_by_css_selector('span')
         result.append({
-            'name': child.get_attribute('title'),
+            'name': title.get_attribute('title'),
             'url': link.get_attribute('href')
         })
+    return result
+
+
+def parse_page(page_url):
+    """returns an array of dicts for each file link in page
+
+    recursivly handles folders
+    takes the url as a string
+    each dict contains {'name', 'url'}
+    """
+    global driver
+    driver.get(page_url)
+    content_list = wait_for_element(
+        (By.CSS_SELECTOR, 'ul#content_listContainer'),
+        msg_fail='This page does not have a content list.')
+    if content_list is not None:
+        return []
+    page_content = driver.find_elements_by_css_selector(
+        'ul#content_listContainer li')
+    result = []
+    for item in page_content:
+        i_type = item.find_element_by_css_selector(
+            'img').get_attribute('alt')
+        if i_type == 'File':
+            # files are just a link
+            result.append({
+                'name': item.find_element_by_css_selector(
+                    'a span').text,
+                'url': item.find_element_by_css_selector(
+                    'a').get_attribute('href')
+            })
+        elif i_type == 'Item':
+            # items contain attachments
+            # TODO handle items
+            pass
+        elif i_type == 'Assignment':
+            # assignments contain attachments
+            # TODO handle assignments
+            pass
+        elif i_type == 'Content Folder':
+            # folders contain another page
+            child_url = item.find_element_by_css_selector(
+                'a').get_attribute('href')
+            my_url = page_url
+            result.append(parse_page(child_url))
+            driver.get(my_url)
+            pass
     return result
 
 
@@ -155,10 +246,13 @@ def main():
             if page['name'] in navpane_ignore:
                 print('  *SKIPPED* ' + page['name'])
                 continue
-            #TODO skip emails page - different for each school
+            # TODO don't reload the home page
+            # TODO skip emails page - different for each school
             print('   ' + page['name'])
-            driver.get(page['url'])
-    print('That was all I could find! You should probably double check.')
+            for item in parse_page(page['url']):
+                print('    ' + item['name'])
+                print('      ' + item['url'])
+    print('That is all I could find! You should double check.')
     driver.quit()
 # end main()
 
