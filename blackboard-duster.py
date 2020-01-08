@@ -5,7 +5,8 @@ Blackboard Duster
     notes and homework
 Author: Taylor Smith, Winter 2019
 Python Version: 3.7
-Notes:
+Notes: Uses Selenium to scrape urls from Blackboard, then urllib to
+    download the files
 TODO:
     - avoid redundant visit to course home page (just ignore it?)
     - download items directly?
@@ -16,11 +17,14 @@ TODO:
     - allow user to choose browser
     - allow user to define additional MIME types, or automatically add
         them as encountered
+    - dump notes from items/assignments into a .txt : use div.details
 ~*~ """
 
 import argparse
-import getpass
 import json
+import urllib
+from time import sleep
+import os
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -37,7 +41,7 @@ global mime_types
 navpane_ignore = {'Announcements', 'Calendar', 'My Grades'}
 
 
-def argparse_setup():
+def parse_args():
     global args
     parser = argparse.ArgumentParser(
         description='Scrapes files from Blackboard courses')
@@ -65,7 +69,10 @@ def argparse_setup():
         help='browser to use - either "firefox" or "chrome". Currently, \
        only firefox is supported; that will change in the future')
     args = parser.parse_args()
-# end argparse_setup()
+    # modify arguments as needed
+    args.save = os.path.abspath(args.save)
+    args.browser = args.browser.lower().strip()
+# end parse_args()
 
 
 def get_ff_profile():
@@ -77,7 +84,6 @@ def get_ff_profile():
     # enable custom save location
     profile.set_preference('browser.download.folderList', 2)
     # set save location
-    # TODO expand save path
     profile.set_preference('browser.download.dir', args.save)
     # disable showing the download manager
     profile.set_preference('browser.download.manager.showWhenStarting', False)
@@ -131,7 +137,7 @@ def get_courses_info():
     global args
     result = []
     try:
-        course_links = WebDriverWait(driver, args.delay * 5).until(
+        course_links = WebDriverWait(driver, args.delay * 3).until(
             EC.presence_of_element_located((By.CSS_SELECTOR,
                                             'div#div_25_1 a'))
         )
@@ -156,7 +162,7 @@ def get_navpane_info():
     """
     global driver
     try:
-        WebDriverWait(driver, args.delay * 5).until(
+        WebDriverWait(driver, args.delay * 2).until(
             EC.presence_of_element_located((By.CSS_SELECTOR,
                                             'ul#courseMenuPalette_contents'))
         )
@@ -176,63 +182,65 @@ def get_navpane_info():
     return result
 
 
-def parse_page(page_url):
-    """returns an array of dicts for each downloadable link in page
+def scrape_page(page_url):
+    """downloads available files on the page, handles folders
 
-    recursivly handles folders
     takes the url as a string
-    each dict contains {'name', 'url', 'link_element'}
     """
     global driver
     driver.get(page_url)
-    result = []
+    folders = []
     try:
-        WebDriverWait(driver, args.delay * 5).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR,
-                                            'ul#content_listContainer'))
+        WebDriverWait(driver, args.delay * 2).until(
+            EC.presence_of_element_located((
+                By.CSS_SELECTOR,
+                'ul#content_listContainer'))
         )
     except TimeoutException:
         print('This page does not have a content list.')
-        return result
+        return
+    # get a list of all items in the content list
     page_content = driver.find_elements_by_css_selector(
-        'ul#content_listContainer li')
+        'ul#content_listContainer > li')
     for item in page_content:
         i_type = item.find_element_by_css_selector(
             'img').get_attribute('alt')
-        print("    found: " + i_type)
+        # in the header holding the name there is a hidden <span> that
+        # gets in the way; ignore it by looking for the style attribute
+        i_name = item.find_element_by_css_selector('span[style]').text
+        print('    {0:s}: {1:s}'.format(i_type, i_name))
         if i_type == 'File':
             # files are just a link
-            result.append({
-                'name': item.find_element_by_css_selector(
-                    'a span').text,
-                'url': item.find_element_by_css_selector(
-                    'a').get_attribute('href'),
-                'link_element': item.find_element_by_css_selector(
-                    'a')
-            })
-        elif i_type == 'Item':
-            # items contain attachments
-            # TODO handle items
-            pass
-        elif i_type == 'Assignment':
-            # assignments contain attachments
-            # TODO handle assignments
-            pass
+            f_link = item.find_element_by_css_selector(
+                'a').get_attribute('href')
+            print('     ~ {0:s}'.format(f_link))
         elif i_type == 'Content Folder':
             # folders contain another page
-            child_url = item.find_element_by_css_selector(
+            folders.append(item.find_element_by_css_selector(
+                'a').get_attribute('href'))
+        else:
+            print('    ** Unsupported item type - attachments will be \
+                collected *')
+        # look for attachments; Items and Assignments usually have
+        # some
+        i_files = item.find_elements_by_css_selector(
+            'ul.attachments > li')
+        for file in i_files:
+            f_name = file.find_element_by_css_selector(
+                'a').text.strip()
+            f_link = file.find_element_by_css_selector(
                 'a').get_attribute('href')
-            my_url = page_url
-            result.append(parse_page(child_url))  # recursion!
-            driver.get(my_url)
-            pass
-    return result
+            print('     - {0:s}'.format(f_name))
+            print('       ~ {0:s}'.format(f_link))
+    # recursivly parse each folder's page
+    for folder_url in folders:
+        scrape_page(folder_url)
 
 
 def main():
     global args
     global driver
-    argparse_setup()
+    parse_args()
     if args.browser == 'firefox':
         driver = webdriver.Firefox(get_ff_profile())
     elif args.browser == 'chrome':
@@ -263,17 +271,13 @@ def main():
         for page in navpane:
             # a few pages have no (downloadable) content, skip them
             if page['name'] in navpane_ignore:
-                print('  *SKIPPED* ' + page['name'])
+                print('  *SKIPPED* {0:s}'.format(page['name']))
                 continue
             # TODO don't reload the home page
             # TODO skip emails page - different for each school
-            print('   ' + page['name'])
-            # iterate over links in page, including subpages (folders)
-            for item in parse_page(page['url']):
-                print('    ' + item['name'])
-                print('      ' + item['url'])
-                driver.get(item['url'])
-                # item['link_element'].click()
+            print('   {0:s}'.format(page['name']))
+            # iterate over each page in course
+            scrape_page(page['url'])
     print('That is all I could find! You should double check.')
     driver.quit()
 # end main()
