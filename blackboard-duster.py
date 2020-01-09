@@ -9,15 +9,13 @@ Notes: Uses Selenium to scrape urls from Blackboard, then urllib to
     download the files
 TODO:
     - avoid redundant visit to course home page (just ignore it?)
-    - download items directly?
     - make notes on where css selectors come from, so users can change
         if needed
     - ignore useless navpane elements - add custom ignore arg
     - log downloaded items, so they can be ignored next time
     - allow user to choose browser
-    - allow user to define additional MIME types, or automatically add
-        them as encountered
     - dump notes from items/assignments into a .txt : use div.details
+    - print unrecognised MIME types
 ~*~ """
 
 import argparse
@@ -33,11 +31,22 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from mime_types import MIME_TYPES
+
 global args
 global driver
-# array to hold encountered MIME types
-global mime_types
 
+mime_types = '''
+    application/octet-stream,
+    application/pdf,
+    application/pkcs8,
+    image/jpeg,
+    image/png,
+    application/zip,
+    text/css,
+    text/plain,
+
+    '''
 navpane_ignore = {'Announcements', 'Calendar', 'My Grades'}
 
 
@@ -54,6 +63,10 @@ def parse_args():
     parser.add_argument(
         '-d', '--delay', metavar='delay_mult', type=int, default=1,
         help='multiplier for sleep/delays')
+    parser.add_argument(
+        '-b', '--browser', metavar='level', default='firefox',
+        help='browser to use - either "firefox" or "chrome". Currently, \
+       only firefox is supported; that will change in the future')
     # parser.add_argument(
     #    '-l', '--log', metavar='level',type=int,
     #    action='store',default=6,
@@ -64,10 +77,6 @@ def parse_args():
     #    '-p', '--print', metavar='level',type=int,
     #    action='store',default=0,
     #    help='Priority level for printing, see --log.')
-    parser.add_argument(
-        '-b', '--browser', metavar='level', default='firefox',
-        help='browser to use - either "firefox" or "chrome". Currently, \
-       only firefox is supported; that will change in the future')
     args = parser.parse_args()
     # modify arguments as needed
     args.save = os.path.abspath(args.save)
@@ -89,7 +98,7 @@ def get_ff_profile():
     profile.set_preference('browser.download.manager.showWhenStarting', False)
     # disable save popup
     profile.set_preference(
-        'browser.helperApps.neverAsk.saveToDisk', 'application/pdf')
+        'browser.helperApps.neverAsk.saveToDisk', ','.join(MIME_TYPES))
     # disable built-in PDF viewer
     profile.set_preference('pdfjs.disabled', True)
     # disable scanning for plugins - in case there's other file viewers
@@ -232,6 +241,8 @@ def scrape_page(page_url):
                 'a').get_attribute('href')
             print('     - {0:s}'.format(f_name))
             print('       ~ {0:s}'.format(f_link))
+            file.click()
+            print('clicked on file')
     # recursivly parse each folder's page
     for folder_url in folders:
         scrape_page(folder_url)
