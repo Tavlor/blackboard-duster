@@ -12,8 +12,8 @@ TODO:
     - make notes on where css selectors come from, so users can change
         if needed
     - ignore useless navpane elements - add custom ignore arg
-    - log downloaded items, so they can be ignored next time
     - allow user to choose browser
+    - log downloaded items, so they can be ignored next time
     - dump notes from items/assignments into a .txt : use div.details
     - print unrecognised MIME types
 ~*~ """
@@ -35,19 +35,21 @@ from mime_types import MIME_TYPES
 
 global args
 global driver
-
-mime_types = '''
-    application/octet-stream,
-    application/pdf,
-    application/pkcs8,
-    image/jpeg,
-    image/png,
-    application/zip,
-    text/css,
-    text/plain,
-
-    '''
 navpane_ignore = {'Announcements', 'Calendar', 'My Grades'}
+
+
+class UrlInfo:
+    """contains useful information about a link
+
+    'name': friendly name of url
+    'url': url found on page, will (probably) get redirected
+    'save_dir': relative to download path, usually the page's name
+    """
+
+    def __init__(self, name, url, save_dir=''):
+        self.name = name
+        self.url = url
+        self.save_dir = save_dir
 
 
 def parse_args():
@@ -191,13 +193,16 @@ def get_navpane_info():
     return result
 
 
-def scrape_page(page_url):
-    """downloads available files on the page, handles folders
+def gather_urls(page_url, save_dir=''):
+    """gathers available files on the page, handles folders
 
-    takes the url as a string
+    takes the url as a string, parent's save_dir
+    returns UrlInfo array
     """
     global driver
+    global args
     driver.get(page_url)
+    result = []
     folders = []
     try:
         WebDriverWait(driver, args.delay * 2).until(
@@ -207,7 +212,7 @@ def scrape_page(page_url):
         )
     except TimeoutException:
         print('This page does not have a content list.')
-        return
+        return result
     # get a list of all items in the content list
     page_content = driver.find_elements_by_css_selector(
         'ul#content_listContainer > li')
@@ -223,6 +228,7 @@ def scrape_page(page_url):
             f_link = item.find_element_by_css_selector(
                 'a').get_attribute('href')
             print('     ~ {0:s}'.format(f_link))
+            result.append(UrlInfo(i_name,f_link,save_dir))
         elif i_type == 'Content Folder':
             # folders contain another page
             folders.append(item.find_element_by_css_selector(
@@ -241,11 +247,12 @@ def scrape_page(page_url):
                 'a').get_attribute('href')
             print('     - {0:s}'.format(f_name))
             print('       ~ {0:s}'.format(f_link))
-            file.click()
-            print('clicked on file')
+            result.append(UrlInfo(f_name,f_link,save_dir))
     # recursivly parse each folder's page
     for folder_url in folders:
-        scrape_page(folder_url)
+        result = result + gather_urls(folder_url, save_dir)
+        print('page done')
+    return result
 
 
 def main():
@@ -254,8 +261,8 @@ def main():
     parse_args()
     if args.browser == 'firefox':
         driver = webdriver.Firefox(get_ff_profile())
-    elif args.browser == 'chrome':
-        driver = webdriver.Chrome(get_ch_profile())
+    # elif args.browser == 'chrome':
+    #     driver = webdriver.Chrome(get_ch_profile())
     else:
         print('sorry, but {0:s} is not a supported browser. Aborting'.format(
             args.browser))
@@ -272,9 +279,9 @@ def main():
     courses = get_courses_info()
     print('I found {0:d} courses. I will go through each one now!'
           .format(len(courses)))
-
+    f_urls = []
     # iterate over each course
-    for course in courses:
+    for course in courses[:1]:
         print(course['name'])
         driver.get(course['url'])
         navpane = get_navpane_info()
@@ -287,8 +294,12 @@ def main():
             # TODO don't reload the home page
             # TODO skip emails page - different for each school
             print('   {0:s}'.format(page['name']))
-            # iterate over each page in course
-            scrape_page(page['url'])
+            # iterate over each page in course, gathering urls
+            f_urls = f_urls + gather_urls(page['url'], course['name'])
+    # iterate over urls, downloading them
+    for f_url in f_urls:
+        driver.get(f_url.url)
+
     print('That is all I could find! You should double check.')
     driver.quit()
 # end main()
