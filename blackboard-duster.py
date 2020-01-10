@@ -67,12 +67,18 @@ def parse_args():
         '-s', '--save', metavar='save_path', default='.',
         help='directory to save your downloads in')
     parser.add_argument(
-        '-d', '--delay', metavar='delay_mult', type=int, default=1,
+        '--delay', metavar='delay_mult', type=int, default=1,
         help='multiplier for sleep/delays')
     parser.add_argument(
-        '-b', '--browser', metavar='level', default='firefox',
-        help='browser to use - either "firefox" or "chrome". Currently, \
-       only firefox is supported; that will change in the future')
+        '-w', '--webdriver', '--wd', metavar='name', default='firefox',
+        help='browser WebDriver to use - either "firefox" or \
+            "chrome". You must have the WebDriver in your system \
+            path. Currently, only firefox is supported; that \
+            will change in the future')
+    parser.add_argument(
+        '-b', '--binary', metavar='file', default=None,
+        help='path to the binary you want to use - use if your \
+            browser binary is not in the default location')
     # parser.add_argument(
     #    '-l', '--log', metavar='level',type=int,
     #    action='store',default=6,
@@ -86,7 +92,7 @@ def parse_args():
     args = parser.parse_args()
     # modify arguments as needed
     args.save = os.path.abspath(args.save)
-    args.browser = args.browser.lower().strip()
+    args.webdriver = args.webdriver.lower().strip()
 # end parse_args()
 
 
@@ -109,12 +115,27 @@ def get_ff_profile():
     profile.set_preference('pdfjs.disabled', True)
     # disable scanning for plugins - in case there's other file viewers
     profile.set_preference('plugin.scan.plid.all', False)
+
+    profile.set_preference('browser.helperApps.alwaysAsk.force', False)
     return profile
 
 
-def get_ch_profile():
-    """ TODO implement chrome profile"""
-    pass
+def get_ch_options():
+    """ sets up a ChromeOptions object
+
+    selenium cannot create a chrome profile so options are used
+    instead.
+    """
+    global args
+    options = webdriver.ChromeOptions()
+    options.add_experimental_option("prefs", {
+        'download.default_directory': args.save,
+        'download.prompt_for_download': False,
+        'download.directory_upgrade': True,
+        'plugins.always_open_pdf_externally': True,
+        'safebrowsing.enabled': True
+    })
+    return options
 
 
 def manual_login():
@@ -162,13 +183,13 @@ def get_courses_info():
         exit()
     course_links = driver.find_elements_by_css_selector(
         'div#div_25_1 a')
-    for link in course_links:
-        # the course name will be the name of its folder
-        result.append(Url(
-            link.get_attribute('href'),
-            link.text,
-            link.text
-        ))
+    for c_l in course_links:
+        link = Url(
+            c_l.get_attribute('href'),
+            c_l.text,
+            c_l.text
+        )
+        result.append(link)
     return result
 
 
@@ -195,12 +216,13 @@ def get_navpane_info(course_url):
     for link in page_links:
         title = link.find_element_by_css_selector('span')
         # the page title should be the name of its folder
-        result.append(Url(
+        link = Url(
             link.get_attribute('href'),
             title.get_attribute('title'),
             '{0}/{1}'.format(course_url.save_dir,
                              title.get_attribute('title'))
-        ))
+        )
+        result.append(link)
     return result
 
 
@@ -236,19 +258,23 @@ def gather_urls(page_url):
         print('    {0:s}: {1:s}'.format(i_type, i_name))
         if i_type == 'File':
             # files are just a link
-            print('     ~ {0:s}'.format(f_link))
-            result.append(Url(
+            link = Url(
                 item.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 i_name,
-                page_url.save_dir))
+                page_url.save_dir
+            )
+            print('     ~ {0:s}'.format(link.url))
+            result.append(link)
         elif i_type == 'Content Folder':
             # folders contain another page
-            folders.append(Url(
+            link = Url(
                 item.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 i_name,
-                '{0}/{1}'.format(page_url.save_dir, i_name)))
+                '{0}/{1}'.format(page_url.save_dir, i_name)
+            )
+            folders.append(link)
         else:
             print('    ** Unsupported item type - attachments will be \
                 collected *')
@@ -257,16 +283,15 @@ def gather_urls(page_url):
         i_files = item.find_elements_by_css_selector(
             'ul.attachments > li')
         for file in i_files:
-            f_name = file.find_element_by_css_selector(
-                'a').text.strip()
-            f_link = file.find_element_by_css_selector(
-                'a').get_attribute('href')
-            print('     - {0:s}'.format(f_name))
-            print('       ~ {0:s}'.format(f_link))
-            result.append(Url(
-                f_link,
-                f_name,
-                '{0}/{1}'.format(page_url.save_dir, i_name)))
+            link = Url(
+                file.find_element_by_css_selector(
+                    'a').get_attribute('href'),
+                file.find_element_by_css_selector('a').text.strip(),
+                '{0}/{1}'.format(page_url.save_dir, i_name)
+            )
+            print('     - {0:s}'.format(link.name))
+            print('       ~ {0:s}'.format(link.url))
+            result.append(link)
     # recursivly parse each folder's page
     for folder_url in folders:
         result = result + gather_urls(folder_url)
@@ -278,13 +303,18 @@ def main():
     global args
     global driver
     parse_args()
-    if args.browser == 'firefox':
-        driver = webdriver.Firefox(get_ff_profile())
-    # elif args.browser == 'chrome':
-    #     driver = webdriver.Chrome(get_ch_profile())
+    if args.webdriver == 'firefox':
+        driver = webdriver.Firefox(firefox_profile=get_ff_profile(),
+                                   firefox_binary=args.webdriver)
+    elif args.webdriver == 'chrome':
+        if args.binary is None:
+            args.binary = 'chromedriver'
+        driver = webdriver.Chrome(
+            chrome_options=get_ch_options(),
+            executable_path=args.binary.strip())
     else:
-        print('sorry, but {0:s} is not a supported browser. Aborting'.format(
-            args.browser))
+        print('sorry, but {0:s} is not a supported WebDriver. \
+            Aborting'.format(args.webdriver))
         exit()
 
     driver.get(args.bb_url)
@@ -317,8 +347,9 @@ def main():
     print('Alright, now I can download your files.')
     for f_url in file_urls[:3]:
         print(f_url)
-        # TODO hangs after opening file
+        # TODO hangs after opening file, ff gives "uncaught exception: 2147746132"
         driver.get(f_url.url)
+        print("*** GOT FILE ***")
 
     print('That is all I could find! You should double check.')
     driver.quit()
