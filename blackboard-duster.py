@@ -38,7 +38,7 @@ global driver
 navpane_ignore = {'Announcements', 'Calendar', 'My Grades'}
 
 
-class UrlInfo:
+class Url:
     """contains useful information about a link
 
     'name': friendly name of url
@@ -46,10 +46,14 @@ class UrlInfo:
     'save_dir': relative to download path, usually the page's name
     """
 
-    def __init__(self, name, url, save_dir=''):
-        self.name = name
+    def __init__(self, url, name, save_dir=''):
         self.url = url
+        self.name = name
         self.save_dir = save_dir
+
+    def __repr__(self):
+        return '{0:s}\n    {1:s}\n    {2:s}'.format(
+            self.url, self.name, self.save_dir)
 
 
 def parse_args():
@@ -140,9 +144,9 @@ def accept_cookies():
 
 
 def get_courses_info():
-    """returns an array of dicts with info about each course
+    """returns an array of Url objects for each course
 
-    each dict contains {'name', 'url'}
+    expects homepage to already be loaded
     """
     global driver
     global args
@@ -159,19 +163,23 @@ def get_courses_info():
     course_links = driver.find_elements_by_css_selector(
         'div#div_25_1 a')
     for link in course_links:
-        result.append({
-            'name': link.text,
-            'url': link.get_attribute('href')
-        })
+        # the course name will be the name of its folder
+        result.append(Url(
+            link.get_attribute('href'),
+            link.text,
+            link.text
+        ))
     return result
 
 
-def get_navpane_info():
-    """returns an array of dicts for items in the navpane
+def get_navpane_info(course_url):
+    """returns an array of Url objects for items in the navpane
 
-    each dict contains {'name', 'url'}
+    takes a Url object for the course, loads the page
     """
     global driver
+    global args
+    driver.get(course_url.url)
     try:
         WebDriverWait(driver, args.delay * 2).until(
             EC.presence_of_element_located((By.CSS_SELECTOR,
@@ -186,22 +194,25 @@ def get_navpane_info():
     result = []
     for link in page_links:
         title = link.find_element_by_css_selector('span')
-        result.append({
-            'name': title.get_attribute('title'),
-            'url': link.get_attribute('href')
-        })
+        # the page title should be the name of its folder
+        result.append(Url(
+            link.get_attribute('href'),
+            title.get_attribute('title'),
+            '{0}/{1}'.format(course_url.save_dir,
+                             title.get_attribute('title'))
+        ))
     return result
 
 
-def gather_urls(page_url, save_dir=''):
+def gather_urls(page_url):
     """gathers available files on the page, handles folders
 
-    takes the url as a string, parent's save_dir
-    returns UrlInfo array
+    page_url: Url object
+    returns Url array
     """
     global driver
     global args
-    driver.get(page_url)
+    driver.get(page_url.url)
     result = []
     folders = []
     try:
@@ -225,14 +236,19 @@ def gather_urls(page_url, save_dir=''):
         print('    {0:s}: {1:s}'.format(i_type, i_name))
         if i_type == 'File':
             # files are just a link
-            f_link = item.find_element_by_css_selector(
-                'a').get_attribute('href')
             print('     ~ {0:s}'.format(f_link))
-            result.append(UrlInfo(i_name,f_link,save_dir))
+            result.append(Url(
+                item.find_element_by_css_selector(
+                    'a').get_attribute('href'),
+                i_name,
+                page_url.save_dir))
         elif i_type == 'Content Folder':
             # folders contain another page
-            folders.append(item.find_element_by_css_selector(
-                'a').get_attribute('href'))
+            folders.append(Url(
+                item.find_element_by_css_selector(
+                    'a').get_attribute('href'),
+                i_name,
+                '{0}/{1}'.format(page_url.save_dir, i_name)))
         else:
             print('    ** Unsupported item type - attachments will be \
                 collected *')
@@ -247,10 +263,13 @@ def gather_urls(page_url, save_dir=''):
                 'a').get_attribute('href')
             print('     - {0:s}'.format(f_name))
             print('       ~ {0:s}'.format(f_link))
-            result.append(UrlInfo(f_name,f_link,save_dir))
+            result.append(Url(
+                f_link,
+                f_name,
+                '{0}/{1}'.format(page_url.save_dir, i_name)))
     # recursivly parse each folder's page
     for folder_url in folders:
-        result = result + gather_urls(folder_url, save_dir)
+        result = result + gather_urls(folder_url)
         print('page done')
     return result
 
@@ -279,25 +298,26 @@ def main():
     courses = get_courses_info()
     print('I found {0:d} courses. I will go through each one now!'
           .format(len(courses)))
-    f_urls = []
+    file_urls = []
     # iterate over each course
     for course in courses[:1]:
-        print(course['name'])
-        driver.get(course['url'])
-        navpane = get_navpane_info()
+        navpane = get_navpane_info(course)
         # iterate over each page
         for page in navpane:
             # a few pages have no (downloadable) content, skip them
-            if page['name'] in navpane_ignore:
-                print('  *SKIPPED* {0:s}'.format(page['name']))
+            if page.name in navpane_ignore:
+                print('  *SKIPPED* {0:s}'.format(page.name))
                 continue
             # TODO don't reload the home page
             # TODO skip emails page - different for each school
-            print('   {0:s}'.format(page['name']))
+            print('   {0:s}'.format(page.name))
             # iterate over each page in course, gathering urls
-            f_urls = f_urls + gather_urls(page['url'], course['name'])
+            file_urls = file_urls + gather_urls(page)
     # iterate over urls, downloading them
-    for f_url in f_urls:
+    print('Alright, now I can download your files.')
+    for f_url in file_urls[:3]:
+        print(f_url)
+        # TODO hangs after opening file
         driver.get(f_url.url)
 
     print('That is all I could find! You should double check.')
