@@ -12,7 +12,7 @@ A scraper script for Blackboard, built with python and selenium. Pulls files upl
 
 
 # Usage
-If you are just using __Firefox__, the easiest way to get started is with
+If you are using __Firefox__, the easiest way to get started is with
 ```bash
 python blackboard-duster.py "www.myschool.edu/blackboard"
 ```
@@ -25,7 +25,7 @@ python blackboard-duster.py "www.myschool.edu/blackboard" -w chrome
 
 To use a __Chromium-based__ browser, use both `-w chrome` and `-b` with the path to your browser's executable:
 ```bash
-python blackboard-duster.py "www.myschool.edu/blackboard" -w chrome "-b /Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+python blackboard-duster.py "www.myschool.edu/blackboard" -w chrome -b "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
 ```
 No other browsers are currently supported.
 
