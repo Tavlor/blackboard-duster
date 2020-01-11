@@ -18,11 +18,15 @@ python blackboard-duster.py "www.myschool.edu/blackboard"
 ```
 where `www.myschool.edu/blackboard` is the URL for your school's Blackboard instance. Firefox will launch and load the page. The script will wait for you to reach the homepage.
 
-To use __Google Chrome__, use the `-w` option:
+To use __Google Chrome__, use the `-w chrome` option:
 ```bash
 python blackboard-duster.py "www.myschool.edu/blackboard" -w chrome
 ```
 
+To use a __Chromium-based__ browser, use both `-w chrome` and `-b` with the path to your browser's executable:
+```bash
+python blackboard-duster.py "www.myschool.edu/blackboard" -w chrome "-b /Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+```
 No other browsers are currently supported.
 
 ## How it works
@@ -31,7 +35,7 @@ This script works in 2 phases:
 1. It gathers URLs from your courses, visiting pages using the navpane on the side.
 0. It visits each URL to trigger a download. By default downloads are saved in your working directory, but the `-s <DIRECTORY PATH>` option lets you change that.
     ```bash
-    python3 blackboard-duster.py "www.myschool.edu/blackboard" -s "/Users/me/school"
+    python blackboard-duster.py "www.myschool.edu/blackboard" -s "/Users/me/school"
     ```
     The path is evaluated using `os.path.abspath`, so it can be absolute or relative to your working directory.
 

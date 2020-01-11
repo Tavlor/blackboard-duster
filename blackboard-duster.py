@@ -77,7 +77,7 @@ def parse_args():
             will change in the future')
     parser.add_argument(
         '-b', '--binary', metavar='file', default=None,
-        help='path to the binary you want to use - use if your \
+        help='currently not working. path to the binary you want to use - use if your \
             browser binary is not in the default location')
     # parser.add_argument(
     #    '-l', '--log', metavar='level',type=int,
@@ -98,8 +98,6 @@ def parse_args():
 
 def get_ff_profile():
     """ sets up a profile to configure download options"""
-    # many thanks to the author of this article
-    # https://yizeng.me/2014/05/23/download-pdf-files-automatically-in-firefox-using-selenium-webdriver/
     global args
     profile = webdriver.FirefoxProfile()
     # enable custom save location
@@ -128,6 +126,8 @@ def get_ch_options():
     """
     global args
     options = webdriver.ChromeOptions()
+    if args.binary is not None:
+        options.binary_location = args.binary.strip()
     options.add_experimental_option("prefs", {
         'download.default_directory': args.save,
         'download.prompt_for_download': False,
@@ -135,6 +135,7 @@ def get_ch_options():
         'plugins.always_open_pdf_externally': True,
         'safebrowsing.enabled': True
     })
+    print(options.binary_location)
     return options
 
 
@@ -155,7 +156,7 @@ def manual_login():
 def accept_cookies():
     """if the cookie notice appears, click 'accept'"""
     try:
-        element = WebDriverWait(driver, args.delay * 3).until(
+        element = WebDriverWait(driver, args.delay * 4).until(
             EC.presence_of_element_located((By.ID, 'agree_button'))
         )
         print('I am accepting the cookie notice, I hope that is ok!')
@@ -202,9 +203,10 @@ def get_navpane_info(course_url):
     global args
     driver.get(course_url.url)
     try:
-        WebDriverWait(driver, args.delay * 2).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR,
-                                            'ul#courseMenuPalette_contents'))
+        WebDriverWait(driver, args.delay * 4).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, 'ul#courseMenuPalette_contents')
+            )
         )
     except TimeoutException:
         print('I could not access the navpane! Aborting')
@@ -238,7 +240,7 @@ def gather_urls(page_url):
     result = []
     folders = []
     try:
-        WebDriverWait(driver, args.delay * 2).until(
+        WebDriverWait(driver, args.delay * 3).until(
             EC.presence_of_element_located((
                 By.CSS_SELECTOR,
                 'ul#content_listContainer'))
@@ -304,19 +306,14 @@ def main():
     global driver
     parse_args()
     if args.webdriver == 'firefox':
-        driver = webdriver.Firefox(firefox_profile=get_ff_profile(),
-                                   firefox_binary=args.webdriver)
+        driver = webdriver.Firefox(firefox_profile=get_ff_profile())
     elif args.webdriver == 'chrome':
-        if args.binary is None:
-            args.binary = 'chromedriver'
-        driver = webdriver.Chrome(
-            chrome_options=get_ch_options(),
-            executable_path=args.binary.strip())
+        driver = webdriver.Chrome(options=get_ch_options())
     else:
         print('sorry, but {0:s} is not a supported WebDriver. \
             Aborting'.format(args.webdriver))
         exit()
-
+    print("here we go!")
     driver.get(args.bb_url)
     # choose a nice size - the navpane is invisible at small widths,
     # but selenium can still see its elements
