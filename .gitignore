@@ -6,3 +6,4 @@
 /src
 Pipfile*
 *.side
+/__pycache__
