@@ -18,12 +18,12 @@ python blackboard-duster.py "www.myschool.edu/blackboard"
 ```
 where `www.myschool.edu/blackboard` is the URL for your school's Blackboard instance. Firefox will launch and load the page. The script will wait for you to reach the homepage.
 
-To use Google Chrome, add the `-w` option:
+To use __Google Chrome__, use the `-w` option:
 ```bash
 python blackboard-duster.py "www.myschool.edu/blackboard" -w chrome
 ```
 
-Currently no other browsers are supported.
+No other browsers are currently supported.
 
 ## How it works
 When it first runs, the script waits for the Blackboard home page to appear, so you can sign in or even navagate to Blackboard if needed.
@@ -41,6 +41,9 @@ Use the `--delay <#>` option, which sets a delay multiplier. The example below w
 ```bash
 python blackboard-duster.py "www.myschool.edu/blackboard" --delay 2
 ```
+
+### "The cookie notice never goes away!"
+This actually isn't a problem, just an irritation. Because the script uses URLs to navagate, it never needs to click on anything (except the cookie notice). The entire page is accessible to Selenium even if it can't _click_ on anything.
 
 ### "The script says there are no courses, but I can see them on the home page!"
 Your course list might be using a different css tag, and you will need to change the [css selector](https://saucelabs.com/resources/articles/selenium-tips-css-selectors) in the code. The `get_courses_info()` function looks for the course list; replace every instance of `div#div_25_1` (there are 2) with your list's selector. Both [Firefox](https://developer.mozilla.org/en-US/docs/Tools/Page_Inspector) and [Chrome](https://developers.google.com/web/tools/chrome-devtools/) have built in page inspectors. Highlight __this__ element:
