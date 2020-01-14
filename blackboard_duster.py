@@ -22,6 +22,7 @@ import json
 # from time import sleep
 import os
 
+from cookiejar import cookiejar
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException
@@ -239,8 +240,8 @@ def gather_links(driver, page_link=None, delay_mult=1):
     # global driver
     # global args
     if page_link is None:
-            # assume right page is already loaded
-            page_link = Link(driver.current_url)
+        # assume right page is already loaded
+        page_link = Link(driver.current_url)
     else:
         driver.get(page_link.url)
     result = []
@@ -287,7 +288,7 @@ def gather_links(driver, page_link=None, delay_mult=1):
             folders.append(link)
         else:
             print('    ** Unsupported item type - attachments will be',
-                ' collected **')
+                  ' collected **')
         # look for attachments; Items and Assignments usually have
         # some
         i_files = item.find_elements_by_css_selector(
@@ -352,15 +353,20 @@ def main():
     # iterate over links, downloading them
     print('Alright, now I can download your files.')
     # set up an opener with the right cookies
-    opener = request.build_opener()
+    jar = CookieJar()
     for cookie in driver.get_cookies():
-        opener.addheaders.append(('Cookie', '{0:s}={1:s}'.format(cookie['name'],cookie['value'])))
-
-    for f_link in file_links:
-        print(f_link)
-        # TODO hangs after opening file, ff gives "uncaught exception: 2147746132"
-        # driver.get(f_link.url)
-        print("*** GOT FILE ***")
+        opener.addheaders.append((
+            'Cookie',
+            '{0:s}={1:s}'.format(cookie['name'], cookie['value'])
+        ))
+    opener = request.build_opener(request.HTTPCookieProcessor(jar))
+    counter = 0
+    for link in file_links:
+        print(link)
+        raw_file = opener.open(link.url)
+        with open('test{0:s}.png'.format(counter), 'b+w') as f:
+            f.write(raw_file)
+    print("*** GOT FILE ***")
 
     print('That is all I could find! You should double check.')
     print('I will leave the browser open, some files may need to',
