@@ -6,13 +6,12 @@ Blackboard Duster
 Author: Taylor Smith, Winter 2019
 Python Version: 3.7
 Notes: Uses Selenium to scrape urls from Blackboard, then urllib to
-    download the files
+    download files
 TODO:
     - avoid redundant visit to course home page (just ignore it?)
     - make notes on where css selectors come from, so users can change
         if needed
     - ignore useless navpane elements - add custom ignore arg
-    - allow user to choose browser
     - log downloaded items, so they can be ignored next time
     - dump notes from items/assignments into a .txt : use div.details
     - print unrecognised MIME types
@@ -20,8 +19,7 @@ TODO:
 
 import argparse
 import json
-import urllib
-from time import sleep
+# from time import sleep
 import os
 
 from selenium import webdriver
@@ -30,26 +28,28 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from urllib import request
 
 from mime_types import MIME_TYPES
 
-global args
-global driver
+# global args
+# global driver
 navpane_ignore = {'Announcements', 'Calendar', 'My Grades'}
 
 
-class Url:
+class Link:
     """contains useful information about a link
 
-    'name': friendly name of url
+    'name': friendly name of link
     'url': url found on page, will (probably) get redirected
     'save_dir': relative to download path, usually the page's name
     """
 
-    def __init__(self, url, name, save_dir=''):
+    def __init__(self, url='', name='', save_dir='', element=None):
         self.url = url
         self.name = name
         self.save_dir = save_dir
+        self.element = element
 
     def __repr__(self):
         return '{0:s}\n    {1:s}\n    {2:s}'.format(
@@ -57,7 +57,7 @@ class Url:
 
 
 def parse_args():
-    global args
+    # global args
     parser = argparse.ArgumentParser(
         description='Scrapes files from Blackboard courses')
     parser.add_argument(
@@ -93,12 +93,13 @@ def parse_args():
     # modify arguments as needed
     args.save = os.path.abspath(args.save)
     args.webdriver = args.webdriver.lower().strip()
+    return args
 # end parse_args()
 
 
-def get_ff_profile():
+def get_ff_profile(args):
     """ sets up a profile to configure download options"""
-    global args
+    # global args
     profile = webdriver.FirefoxProfile()
     # enable custom save location
     profile.set_preference('browser.download.folderList', 2)
@@ -118,13 +119,13 @@ def get_ff_profile():
     return profile
 
 
-def get_ch_options():
+def get_ch_options(args):
     """ sets up a ChromeOptions object
 
     selenium cannot create a chrome profile so options are used
     instead.
     """
-    global args
+    # global args
     options = webdriver.ChromeOptions()
     if args.binary is not None:
         options.binary_location = args.binary.strip()
@@ -139,7 +140,7 @@ def get_ch_options():
     return options
 
 
-def manual_login():
+def manual_login(driver):
     """allow user to signs in manually
 
      waits until the Blackboard homepage appears, returns nothing
@@ -153,10 +154,10 @@ def manual_login():
         pass
 
 
-def accept_cookies():
+def accept_cookies(driver, delay_mult):
     """if the cookie notice appears, click 'accept'"""
     try:
-        element = WebDriverWait(driver, args.delay * 4).until(
+        element = WebDriverWait(driver, delay_mult * 4).until(
             EC.presence_of_element_located((By.ID, 'agree_button'))
         )
         print('I am accepting the cookie notice, I hope that is ok!')
@@ -165,16 +166,16 @@ def accept_cookies():
         print('I did not see a cookie notice.')
 
 
-def get_courses_info():
-    """returns an array of Url objects for each course
+def get_courses_info(driver, delay_mult):
+    """returns an array of link objects for each course
 
     expects homepage to already be loaded
     """
-    global driver
-    global args
+    # global driver
+    # global args
     result = []
     try:
-        course_links = WebDriverWait(driver, args.delay * 3).until(
+        course_links = WebDriverWait(driver, delay_mult * 3).until(
             EC.presence_of_element_located((By.CSS_SELECTOR,
                                             'div#div_25_1 a'))
         )
@@ -185,7 +186,7 @@ def get_courses_info():
     course_links = driver.find_elements_by_css_selector(
         'div#div_25_1 a')
     for c_l in course_links:
-        link = Url(
+        link = Link(
             c_l.get_attribute('href'),
             c_l.text,
             c_l.text
@@ -194,16 +195,16 @@ def get_courses_info():
     return result
 
 
-def get_navpane_info(course_url):
-    """returns an array of Url objects for items in the navpane
+def get_navpane_info(driver, course_link, delay_mult):
+    """returns an array of link objects for items in the navpane
 
-    takes a Url object for the course, loads the page
+    takes a link object for the course, loads the page
     """
-    global driver
-    global args
-    driver.get(course_url.url)
+    # global driver
+    # global args
+    driver.get(course_link.url)
     try:
-        WebDriverWait(driver, args.delay * 4).until(
+        WebDriverWait(driver, delay_mult * 4).until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, 'ul#courseMenuPalette_contents')
             )
@@ -218,29 +219,34 @@ def get_navpane_info(course_url):
     for link in page_links:
         title = link.find_element_by_css_selector('span')
         # the page title should be the name of its folder
-        link = Url(
+        link = Link(
             link.get_attribute('href'),
             title.get_attribute('title'),
-            '{0}/{1}'.format(course_url.save_dir,
+            '{0}/{1}'.format(course_link.save_dir,
                              title.get_attribute('title'))
         )
         result.append(link)
     return result
 
 
-def gather_urls(page_url):
-    """gathers available files on the page, handles folders
+def gather_links(driver, page_link=None, delay_mult=1):
+    """gathers available files on the given page, handles folders
 
-    page_url: Url object
-    returns Url array
+    page_link: link object, if not given it is assumed the current page
+        is the right page
+    returns link array
     """
-    global driver
-    global args
-    driver.get(page_url.url)
+    # global driver
+    # global args
+    if page_link is None:
+            # assume right page is already loaded
+            page_link = Link(driver.current_url)
+    else:
+        driver.get(page_link.url)
     result = []
     folders = []
     try:
-        WebDriverWait(driver, args.delay * 3).until(
+        WebDriverWait(driver, delay_mult * 3).until(
             EC.presence_of_element_located((
                 By.CSS_SELECTOR,
                 'ul#content_listContainer'))
@@ -260,55 +266,58 @@ def gather_urls(page_url):
         print('    {0:s}: {1:s}'.format(i_type, i_name))
         if i_type == 'File':
             # files are just a link
-            link = Url(
+            link = Link(
                 item.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 i_name,
-                page_url.save_dir
+                page_link.save_dir,
+                item.find_element_by_css_selector(
+                    'a')
             )
             print('     ~ {0:s}'.format(link.url))
             result.append(link)
         elif i_type == 'Content Folder':
             # folders contain another page
-            link = Url(
+            link = Link(
                 item.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 i_name,
-                '{0}/{1}'.format(page_url.save_dir, i_name)
+                '{0}/{1}'.format(page_link.save_dir, i_name)
             )
             folders.append(link)
         else:
-            print('    ** Unsupported item type - attachments will be \
-                collected *')
+            print('    ** Unsupported item type - attachments will be',
+                ' collected **')
         # look for attachments; Items and Assignments usually have
         # some
         i_files = item.find_elements_by_css_selector(
             'ul.attachments > li')
         for file in i_files:
-            link = Url(
+            link = Link(
                 file.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 file.find_element_by_css_selector('a').text.strip(),
-                '{0}/{1}'.format(page_url.save_dir, i_name)
+                '{0}/{1}'.format(page_link.save_dir, i_name),
+                file.find_element_by_css_selector(
+                    'a')
             )
             print('     - {0:s}'.format(link.name))
             print('       ~ {0:s}'.format(link.url))
             result.append(link)
     # recursivly parse each folder's page
-    for folder_url in folders:
-        result = result + gather_urls(folder_url)
+    for folder_link in folders:
+        result = result + gather_links(driver, folder_link, delay_mult)
         print('page done')
     return result
 
 
 def main():
-    global args
-    global driver
-    parse_args()
+    driver = None
+    args = parse_args()
     if args.webdriver == 'firefox':
-        driver = webdriver.Firefox(firefox_profile=get_ff_profile())
+        driver = webdriver.Firefox(firefox_profile=get_ff_profile(args))
     elif args.webdriver == 'chrome':
-        driver = webdriver.Chrome(options=get_ch_options())
+        driver = webdriver.Chrome(options=get_ch_options(args))
     else:
         print('sorry, but {0:s} is not a supported WebDriver. \
             Aborting'.format(args.webdriver))
@@ -318,19 +327,19 @@ def main():
     # choose a nice size - the navpane is invisible at small widths,
     # but selenium can still see its elements
     driver.set_window_size(1200, 700)
-    manual_login()
+    manual_login(driver)
     print('Alright, I can drive from here.')
     # TODO are links visible behind the cookie notice?
-    accept_cookies()
-    courses = get_courses_info()
+    accept_cookies(driver, args.delay)
+    courses = get_courses_info(driver, args.delay)
     print('I found {0:d} courses. I will go through each one now!'
           .format(len(courses)))
-    file_urls = []
+    file_links = []
     # iterate over each course
-    for course in courses[:1]:
-        navpane = get_navpane_info(course)
+    for course in courses[1:2]:
+        navpane = get_navpane_info(driver, course, args.delay)
         # iterate over each page
-        for page in navpane:
+        for page in navpane[:1]:
             # a few pages have no (downloadable) content, skip them
             if page.name in navpane_ignore:
                 print('  *SKIPPED* {0:s}'.format(page.name))
@@ -338,18 +347,25 @@ def main():
             # TODO don't reload the home page
             # TODO skip emails page - different for each school
             print('   {0:s}'.format(page.name))
-            # iterate over each page in course, gathering urls
-            file_urls = file_urls + gather_urls(page)
-    # iterate over urls, downloading them
+            # iterate over each page in course, gathering links
+            file_links = file_links + gather_links(driver, page, args.delay)
+    # iterate over links, downloading them
     print('Alright, now I can download your files.')
-    for f_url in file_urls[:3]:
-        print(f_url)
+    # set up an opener with the right cookies
+    opener = request.build_opener()
+    for cookie in driver.get_cookies():
+        opener.addheaders.append(('Cookie', '{0:s}={1:s}'.format(cookie['name'],cookie['value'])))
+
+    for f_link in file_links:
+        print(f_link)
         # TODO hangs after opening file, ff gives "uncaught exception: 2147746132"
-        driver.get(f_url.url)
+        # driver.get(f_link.url)
         print("*** GOT FILE ***")
 
     print('That is all I could find! You should double check.')
-    driver.quit()
+    print('I will leave the browser open, some files may need to',
+          ' finish downloading')
+
 # end main()
 
 
