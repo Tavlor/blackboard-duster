@@ -14,13 +14,14 @@ TODO:
     - ignore useless navpane elements - add custom ignore arg
     - log downloaded items, so they can be ignored next time
     - dump notes from items/assignments into a .txt : use div.details
-    - progress bar
+    - don't abort if navpane is missing, reload or skip
 ~*~ """
 
 import argparse
 import json
 import requests
 
+from os import get_terminal_size
 from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -122,7 +123,7 @@ def get_courses_info(driver, delay_mult, save_root):
     """returns an array of link objects for each course
 
     driver: a selenium WebDriver
-    delay_mult: delay multiplyer
+    delay_mult: delay multiplier
     save_root: base directory for downloads
     expects homepage to already be loaded
     """
@@ -155,12 +156,12 @@ def get_navpane_info(driver, course_link, delay_mult):
     driver: a selenium WebDriver
     course_link: Link object representing the course homepage - this
         link will be loaded
-    delay_mult: delay multiplyer
+    delay_mult: delay multiplier
     returns a Link array
     """
     driver.get(course_link.url)
     try:
-        WebDriverWait(driver, delay_mult * 4).until(
+        WebDriverWait(driver, delay_mult * 7).until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, 'ul#courseMenuPalette_contents')
             )
@@ -189,7 +190,7 @@ def gather_links(driver, page_link=None, delay_mult=1):
 
     driver: a selenium WebDriver
     page_link: link object, if None then the loaded page is used
-    delay_mult: delay multiplyer
+    delay_mult: delay multiplier
     returns a Link array
     """
     # global driver
@@ -245,12 +246,16 @@ def gather_links(driver, page_link=None, delay_mult=1):
         # some
         i_files = item.find_elements_by_css_selector(
             'ul.attachments > li')
+        # if there are multiple attachments, stick them in a folder
+        save_path = page_link.save_path
+        if len(i_files) > 1:
+            save_path = save_path / i_name
         for file in i_files:
             link = Link(
                 file.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 file.find_element_by_css_selector('a').text.strip(),
-                (page_link.save_path / i_name)
+                save_path
             )
             print('     - {}'.format(link.name))
             result.append(link)
@@ -313,9 +318,12 @@ def main():
     session = requests.Session()
     for cookie in driver.get_cookies():
         session.cookies.set(cookie['name'], cookie['value'])
+    # calculate values for the progress bar
+    prog_len = get_terminal_size().columns-2
+    prog_convert = int(prog_len / len(file_links))
 
-    print('I am starting to download files now. This may take a while')
-    for link in file_links:
+    print('I am downloading files now. This may take a while.')
+    for count, link in enumerate(file_links):
         # download the file
         result = session.get(link.url)
         # setup the file's path and create any needed directories
@@ -328,6 +336,10 @@ def main():
             counters['downloaded'] = counters['downloaded'] + 1
         except FileNotFoundError:
             counters['duplicate'] = counters['duplicate'] + 1
+        # progress bar
+        progress = count * prog_convert
+        print('|{}{}|'.format('#'*progress, '-'*(prog_len-progress)),
+              end='\r')
 
     print('\n{} files downloaded. {} duplicates encountered.'.format(
         counters['downloaded'], counters['duplicate']
