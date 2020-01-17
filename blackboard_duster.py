@@ -41,11 +41,10 @@ class Link:
     'save_path': relative to download path, usually the page's name
     """
 
-    def __init__(self, url='', name='', save_path=None, element=None):
+    def __init__(self, url='', name='', save_path=None):
         self.url = url
         self.name = name
         self.save_path = save_path
-        self.element = element
 
     def __repr__(self):
         return '{}\n\t{}\n\t{}'.format(
@@ -227,9 +226,7 @@ def gather_links(driver, page_link=None, delay_mult=1):
                 item.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 i_name,
-                page_link.save_path,
-                item.find_element_by_css_selector(
-                    'a')
+                page_link.save_path
             )
             result.append(link)
         elif i_type == 'Content Folder':
@@ -253,8 +250,7 @@ def gather_links(driver, page_link=None, delay_mult=1):
                 file.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 file.find_element_by_css_selector('a').text.strip(),
-                (page_link.save_path / i_name),
-                file.find_element_by_css_selector('a')
+                (page_link.save_path / i_name)
             )
             print('     - {}'.format(link.name))
             result.append(link)
