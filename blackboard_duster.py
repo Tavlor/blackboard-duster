@@ -14,7 +14,7 @@ TODO:
     - ignore useless navpane elements - add custom ignore arg
     - log downloaded items, so they can be ignored next time
     - dump notes from items/assignments into a .txt : use div.details
-    - print unrecognised MIME types
+    - progress bar
 ~*~ """
 
 import argparse
@@ -29,8 +29,6 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from urllib.parse import unquote
-
-from mime_types import MIME_TYPES
 
 navpane_ignore = {'Announcements', 'Calendar', 'My Grades'}
 
@@ -93,47 +91,6 @@ def parse_args():
     args.webdriver = args.webdriver.lower().strip()
     return args
 # end parse_args()
-
-
-def get_ff_profile(args):
-    """ sets up a profile to configure download options"""
-    profile = webdriver.FirefoxProfile()
-    # enable custom save location
-    profile.set_preference('browser.download.folderList', 2)
-    # set save location
-    profile.set_preference('browser.download.dir', args.save)
-    # disable showing the download manager
-    profile.set_preference('browser.download.manager.showWhenStarting', False)
-    # disable save popup
-    profile.set_preference(
-        'browser.helperApps.neverAsk.saveToDisk', ','.join(MIME_TYPES))
-    # disable built-in PDF viewer
-    profile.set_preference('pdfjs.disabled', True)
-    # disable scanning for plugins - in case there's other file viewers
-    profile.set_preference('plugin.scan.plid.all', False)
-
-    profile.set_preference('browser.helperApps.alwaysAsk.force', False)
-    return profile
-
-
-def get_ch_options(args):
-    """ sets up a ChromeOptions object
-
-    selenium cannot create a chrome profile so options are used
-    instead.
-    """
-    options = webdriver.ChromeOptions()
-    if args.binary is not None:
-        options.binary_location = args.binary.strip()
-    options.add_experimental_option("prefs", {
-        'download.default_directory': args.save,
-        'download.prompt_for_download': False,
-        'download.directory_upgrade': True,
-        'plugins.always_open_pdf_externally': True,
-        'safebrowsing.enabled': True
-    })
-    print(options.binary_location)
-    return options
 
 
 def manual_login(driver):
@@ -213,14 +170,14 @@ def get_navpane_info(driver, course_link, delay_mult):
         print('I could not access the navpane! Aborting')
         driver.quit()
         exit()
-    page_links = driver.find_elements_by_css_selector(
+    page_link_elements = driver.find_elements_by_css_selector(
         'ul#courseMenuPalette_contents a')
     result = []
-    for link in page_links:
-        title = link.find_element_by_css_selector(
+    for element in page_link_elements:
+        title = element.find_element_by_css_selector(
             'span').get_attribute('title')
         link = Link(
-            link.get_attribute('href'),
+            element.get_attribute('href'),
             title,
             (course_link.save_path / title)
         )
@@ -263,7 +220,7 @@ def gather_links(driver, page_link=None, delay_mult=1):
         # in the header holding the name there is a hidden <span> that
         # gets in the way; ignore it by looking for the style attribute
         i_name = item.find_element_by_css_selector('span[style]').text
-        print('    {}: {}'.format(i_type, i_name))
+        # print('    {}: {}'.format(i_type, i_name))
         if i_type == 'File':
             # files are just a link
             link = Link(
@@ -274,7 +231,6 @@ def gather_links(driver, page_link=None, delay_mult=1):
                 item.find_element_by_css_selector(
                     'a')
             )
-            print('     ~ {}'.format(link.url))
             result.append(link)
         elif i_type == 'Content Folder':
             # folders contain another page
@@ -301,7 +257,6 @@ def gather_links(driver, page_link=None, delay_mult=1):
                 file.find_element_by_css_selector('a')
             )
             print('     - {}'.format(link.name))
-            print('       ~ {}'.format(link.url))
             result.append(link)
     # recursivly parse each folder's page
     for folder_link in folders:
@@ -337,10 +292,10 @@ def main():
           .format(len(courses)))
     file_links = []
     # iterate over each course
-    for course in courses[1:2]:
+    for course in courses:
         navpane = get_navpane_info(driver, course, args.delay)
         # iterate over each page
-        for page in navpane[:1]:
+        for page in navpane:
             # a few pages have no (downloadable) content, skip them
             if page.name in navpane_ignore:
                 print('  *SKIPPED* {}'.format(page.name))
@@ -350,6 +305,8 @@ def main():
             print('   {}'.format(page.name))
             # iterate over each page in course, gathering links
             file_links = file_links + gather_links(driver, page, args.delay)
+
+    print('I gathered {} urls from the browser.'.format(len(file_links)))
 
     # set up download tracking variables
     counters = {
@@ -376,9 +333,11 @@ def main():
         except FileNotFoundError:
             counters['duplicate'] = counters['duplicate'] + 1
 
-    print('\n{} files downloaded. {} duplicates encountered.')
-
+    print('\n{} files downloaded. {} duplicates encountered.'.format(
+        counters['downloaded'], counters['duplicate']
+    ))
     driver.quit()
+
 
 # end main()
 
