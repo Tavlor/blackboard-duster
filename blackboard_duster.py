@@ -19,22 +19,19 @@ TODO:
 
 import argparse
 import json
-# from time import sleep
-import os
+import requests
 
-from cookiejar import cookiejar
+from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from urllib import request
+from urllib.parse import unquote
 
 from mime_types import MIME_TYPES
 
-# global args
-# global driver
 navpane_ignore = {'Announcements', 'Calendar', 'My Grades'}
 
 
@@ -43,29 +40,28 @@ class Link:
 
     'name': friendly name of link
     'url': url found on page, will (probably) get redirected
-    'save_dir': relative to download path, usually the page's name
+    'save_path': relative to download path, usually the page's name
     """
 
-    def __init__(self, url='', name='', save_dir='', element=None):
+    def __init__(self, url='', name='', save_path=None, element=None):
         self.url = url
         self.name = name
-        self.save_dir = save_dir
+        self.save_path = save_path
         self.element = element
 
     def __repr__(self):
-        return '{0:s}\n    {1:s}\n    {2:s}'.format(
-            self.url, self.name, self.save_dir)
+        return '{}\n\t{}\n\t{}'.format(
+            self.url, self.name, self.save_path)
 
 
 def parse_args():
-    # global args
     parser = argparse.ArgumentParser(
         description='Scrapes files from Blackboard courses')
     parser.add_argument(
         'bb_url', metavar='BB_base_URL',
         help='URL for your Blackboard instance.')
     parser.add_argument(
-        '-s', '--save', metavar='save_path', default='.',
+        '-s', '--save', metavar='path', default='.',
         help='directory to save your downloads in')
     parser.add_argument(
         '--delay', metavar='delay_mult', type=int, default=1,
@@ -91,8 +87,9 @@ def parse_args():
     #    action='store',default=0,
     #    help='Priority level for printing, see --log.')
     args = parser.parse_args()
-    # modify arguments as needed
-    args.save = os.path.abspath(args.save)
+    # convert given path string into a Path object
+    args.save = Path(args.save)
+    # sterilize webdriver name
     args.webdriver = args.webdriver.lower().strip()
     return args
 # end parse_args()
@@ -100,7 +97,6 @@ def parse_args():
 
 def get_ff_profile(args):
     """ sets up a profile to configure download options"""
-    # global args
     profile = webdriver.FirefoxProfile()
     # enable custom save location
     profile.set_preference('browser.download.folderList', 2)
@@ -126,7 +122,6 @@ def get_ch_options(args):
     selenium cannot create a chrome profile so options are used
     instead.
     """
-    # global args
     options = webdriver.ChromeOptions()
     if args.binary is not None:
         options.binary_location = args.binary.strip()
@@ -167,18 +162,20 @@ def accept_cookies(driver, delay_mult):
         print('I did not see a cookie notice.')
 
 
-def get_courses_info(driver, delay_mult):
+def get_courses_info(driver, delay_mult, save_root):
     """returns an array of link objects for each course
 
+    driver: a selenium WebDriver
+    delay_mult: delay multiplyer
+    save_root: base directory for downloads
     expects homepage to already be loaded
     """
-    # global driver
-    # global args
     result = []
     try:
         course_links = WebDriverWait(driver, delay_mult * 3).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR,
-                                            'div#div_25_1 a'))
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, 'div#div_25_1 a')
+            )
         )
     except TimeoutException:
         print('I did not see your course list! Aborting')
@@ -190,19 +187,21 @@ def get_courses_info(driver, delay_mult):
         link = Link(
             c_l.get_attribute('href'),
             c_l.text,
-            c_l.text
+            (save_root / c_l.text)
         )
         result.append(link)
     return result
 
 
 def get_navpane_info(driver, course_link, delay_mult):
-    """returns an array of link objects for items in the navpane
+    """returns an array of Links for items in the navpane
 
-    takes a link object for the course, loads the page
+    driver: a selenium WebDriver
+    course_link: Link object representing the course homepage - this
+        link will be loaded
+    delay_mult: delay multiplyer
+    returns a Link array
     """
-    # global driver
-    # global args
     driver.get(course_link.url)
     try:
         WebDriverWait(driver, delay_mult * 4).until(
@@ -218,24 +217,24 @@ def get_navpane_info(driver, course_link, delay_mult):
         'ul#courseMenuPalette_contents a')
     result = []
     for link in page_links:
-        title = link.find_element_by_css_selector('span')
-        # the page title should be the name of its folder
+        title = link.find_element_by_css_selector(
+            'span').get_attribute('title')
         link = Link(
             link.get_attribute('href'),
-            title.get_attribute('title'),
-            '{0}/{1}'.format(course_link.save_dir,
-                             title.get_attribute('title'))
+            title,
+            (course_link.save_path / title)
         )
         result.append(link)
     return result
 
 
 def gather_links(driver, page_link=None, delay_mult=1):
-    """gathers available files on the given page, handles folders
+    """gathers available file urls on the given page, handles folders
 
-    page_link: link object, if not given it is assumed the current page
-        is the right page
-    returns link array
+    driver: a selenium WebDriver
+    page_link: link object, if None then the loaded page is used
+    delay_mult: delay multiplyer
+    returns a Link array
     """
     # global driver
     # global args
@@ -264,18 +263,18 @@ def gather_links(driver, page_link=None, delay_mult=1):
         # in the header holding the name there is a hidden <span> that
         # gets in the way; ignore it by looking for the style attribute
         i_name = item.find_element_by_css_selector('span[style]').text
-        print('    {0:s}: {1:s}'.format(i_type, i_name))
+        print('    {}: {}'.format(i_type, i_name))
         if i_type == 'File':
             # files are just a link
             link = Link(
                 item.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 i_name,
-                page_link.save_dir,
+                page_link.save_path,
                 item.find_element_by_css_selector(
                     'a')
             )
-            print('     ~ {0:s}'.format(link.url))
+            print('     ~ {}'.format(link.url))
             result.append(link)
         elif i_type == 'Content Folder':
             # folders contain another page
@@ -283,7 +282,7 @@ def gather_links(driver, page_link=None, delay_mult=1):
                 item.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 i_name,
-                '{0}/{1}'.format(page_link.save_dir, i_name)
+                (page_link.save_path / i_name)
             )
             folders.append(link)
         else:
@@ -298,12 +297,11 @@ def gather_links(driver, page_link=None, delay_mult=1):
                 file.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 file.find_element_by_css_selector('a').text.strip(),
-                '{0}/{1}'.format(page_link.save_dir, i_name),
-                file.find_element_by_css_selector(
-                    'a')
+                (page_link.save_path / i_name),
+                file.find_element_by_css_selector('a')
             )
-            print('     - {0:s}'.format(link.name))
-            print('       ~ {0:s}'.format(link.url))
+            print('     - {}'.format(link.name))
+            print('       ~ {}'.format(link.url))
             result.append(link)
     # recursivly parse each folder's page
     for folder_link in folders:
@@ -316,11 +314,13 @@ def main():
     driver = None
     args = parse_args()
     if args.webdriver == 'firefox':
-        driver = webdriver.Firefox(firefox_profile=get_ff_profile(args))
+        # driver = webdriver.Firefox(firefox_profile=get_ff_profile(args))
+        driver = webdriver.Firefox()
     elif args.webdriver == 'chrome':
-        driver = webdriver.Chrome(options=get_ch_options(args))
+        # driver = webdriver.Chrome(options=get_ch_options(args))
+        driver = webdriver.Chrome()
     else:
-        print('sorry, but {0:s} is not a supported WebDriver. \
+        print('sorry, but {} is not a supported WebDriver. \
             Aborting'.format(args.webdriver))
         exit()
     print("here we go!")
@@ -332,8 +332,8 @@ def main():
     print('Alright, I can drive from here.')
     # TODO are links visible behind the cookie notice?
     accept_cookies(driver, args.delay)
-    courses = get_courses_info(driver, args.delay)
-    print('I found {0:d} courses. I will go through each one now!'
+    courses = get_courses_info(driver, args.delay, args.save)
+    print('I found {} courses. I will go through each one now!'
           .format(len(courses)))
     file_links = []
     # iterate over each course
@@ -343,34 +343,42 @@ def main():
         for page in navpane[:1]:
             # a few pages have no (downloadable) content, skip them
             if page.name in navpane_ignore:
-                print('  *SKIPPED* {0:s}'.format(page.name))
+                print('  *SKIPPED* {}'.format(page.name))
                 continue
             # TODO don't reload the home page
             # TODO skip emails page - different for each school
-            print('   {0:s}'.format(page.name))
+            print('   {}'.format(page.name))
             # iterate over each page in course, gathering links
             file_links = file_links + gather_links(driver, page, args.delay)
-    # iterate over links, downloading them
-    print('Alright, now I can download your files.')
-    # set up an opener with the right cookies
-    jar = CookieJar()
-    for cookie in driver.get_cookies():
-        opener.addheaders.append((
-            'Cookie',
-            '{0:s}={1:s}'.format(cookie['name'], cookie['value'])
-        ))
-    opener = request.build_opener(request.HTTPCookieProcessor(jar))
-    counter = 0
-    for link in file_links:
-        print(link)
-        raw_file = opener.open(link.url)
-        with open('test{0:s}.png'.format(counter), 'b+w') as f:
-            f.write(raw_file)
-    print("*** GOT FILE ***")
 
-    print('That is all I could find! You should double check.')
-    print('I will leave the browser open, some files may need to',
-          ' finish downloading')
+    # set up download tracking variables
+    counters = {
+        'downloaded': 0,
+        'duplicate': 0
+    }
+    # set up a session with the right cookies
+    session = requests.Session()
+    for cookie in driver.get_cookies():
+        session.cookies.set(cookie['name'], cookie['value'])
+
+    print('I am starting to download files now. This may take a while')
+    for link in file_links:
+        # download the file
+        result = session.get(link.url)
+        # setup the file's path and create any needed directories
+        link.save_path.mkdir(parents=True, exist_ok=True)
+        file_name = unquote(result.url.rsplit('/', 1)[1])
+        file_path = link.save_path / file_name
+        try:
+            with file_path.open('xb') as file:
+                file.write(result.content)
+            counters['downloaded'] = counters['downloaded'] + 1
+        except FileNotFoundError:
+            counters['duplicate'] = counters['duplicate'] + 1
+
+    print('\n{} files downloaded. {} duplicates encountered.')
+
+    driver.quit()
 
 # end main()
 

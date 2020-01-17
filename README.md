@@ -1,14 +1,21 @@
 # Blackboard Duster
-A scraper script for Blackboard, built with python and selenium. Pulls files uploaded into classes.
+A scraper script for Blackboard, built with python, selenium and the requests library. Pulls files uploaded into classes.
 
 ## Requirements
 - Python 3
-- [Selenium](https://selenium.dev/selenium/docs/api/py/index.html)
+- [Selenium](https://selenium.dev/selenium/docs/api/py/index.html) for python
+
+  `pip install selenium`
+- The [requests library](https://2.python-requests.org/en/master/)
+
+  `pip install requests`
 - The WebDriver for your browser - make sure its version matches your browser version!
    - [Firefox WebDriver](https://github.com/mozilla/geckodriver)
-     - macOS users with homebrew can use `brew install geckodriver`
+
+      macOS users with homebrew can use `brew install geckodriver`
    - [Chrome WebDriver](https://sites.google.com/a/chromium.org/chromedriver/)
-     - macOS users with homebrew can use `brew cask install chromedriver`
+
+      macOS users with homebrew can use `brew cask install chromedriver`
 
 
 # Usage
