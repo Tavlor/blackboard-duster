@@ -266,6 +266,45 @@ def gather_links(driver, page_link=None, delay_mult=1):
     return result
 
 
+def download_links(driver, links):
+    """uses requests to download files, shows a progress bar
+
+    driver: a WebDriver object
+    links: a list of Link objects
+    returns a dictionary of counters
+    """
+    # set up download tracking variables
+    counters = {
+        'downloaded': 0,
+        'duplicate': 0
+    }
+    # set up a session with the right cookies
+    session = requests.Session()
+    for cookie in driver.get_cookies():
+        session.cookies.set(cookie['name'], cookie['value'])
+
+    print('I am downloading files now. This may take a while.')
+    for count, link in enumerate(links):
+        # download the file
+        result = session.get(link.url)
+        # setup the file's path and create any needed directories
+        link.save_path.mkdir(parents=True, exist_ok=True)
+        file_name = unquote(result.url.rsplit('/', 1)[1])
+        file_path = link.save_path / file_name
+        try:
+            with file_path.open('xb') as file:
+                file.write(result.content)
+            counters['downloaded'] = counters['downloaded'] + 1
+        except FileNotFoundError:
+            counters['duplicate'] = counters['duplicate'] + 1
+        # progress bar
+        prog_len = get_terminal_size().columns-2
+        progress = count * int(prog_len / len(links))
+        print('|{}{}|'.format('#'*progress, '-'*(prog_len-progress)),
+              end='\r')
+    return counters
+
+
 def main():
     driver = None
     args = parse_args()
@@ -305,48 +344,14 @@ def main():
             # TODO skip emails page - different for each school
             print('   {}'.format(page.name))
             # iterate over each page in course, gathering links
-            file_links = file_links + gather_links(driver, page, args.delay)
-
-    print('I gathered {} urls from the browser.'.format(len(file_links)))
-
-    # set up download tracking variables
-    counters = {
-        'downloaded': 0,
-        'duplicate': 0
-    }
-    # set up a session with the right cookies
-    session = requests.Session()
-    for cookie in driver.get_cookies():
-        session.cookies.set(cookie['name'], cookie['value'])
-    # calculate values for the progress bar
-    prog_len = get_terminal_size().columns-2
-    prog_convert = int(prog_len / len(file_links))
-
-    print('I am downloading files now. This may take a while.')
-    for count, link in enumerate(file_links):
-        # download the file
-        result = session.get(link.url)
-        # setup the file's path and create any needed directories
-        link.save_path.mkdir(parents=True, exist_ok=True)
-        file_name = unquote(result.url.rsplit('/', 1)[1])
-        file_path = link.save_path / file_name
-        try:
-            with file_path.open('xb') as file:
-                file.write(result.content)
-            counters['downloaded'] = counters['downloaded'] + 1
-        except FileNotFoundError:
-            counters['duplicate'] = counters['duplicate'] + 1
-        # progress bar
-        progress = count * prog_convert
-        print('|{}{}|'.format('#'*progress, '-'*(prog_len-progress)),
-              end='\r')
-
-    print('\n{} files downloaded. {} duplicates encountered.'.format(
+            file_links = file_links + gather_links(driver, page,
+                                                   args.delay)
+    print('I got {} urls from the browser.'.format(len(file_links)))
+    counters = download_links(driver, file_links)
+    print('\n{} files downloaded. {} duplicates ignored.'.format(
         counters['downloaded'], counters['duplicate']
     ))
     driver.quit()
-
-
 # end main()
 
 
