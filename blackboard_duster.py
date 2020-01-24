@@ -24,7 +24,7 @@ import argparse
 import json
 import requests
 
-from enum import Enum
+from enum import Enum, auto
 from datetime import datetime
 from os import get_terminal_size
 from pathlib import Path
@@ -64,10 +64,10 @@ class Link:
 
 class DLResult(Enum):
     """represents various download results"""
-    COLLISION = 1
-    DOWNLOADED = 2
-    DUPLICATE = 3
-    UPDATED = 4
+    COLLISION = auto()
+    DOWNLOADED = auto()
+    DUPLICATE = auto()
+    UPDATED = auto()
 
 
 def parse_args():
@@ -158,7 +158,7 @@ def get_courses_info(driver, delay_mult, save_root):
     """
     result = []
     try:
-        course_links = WebDriverWait(driver, delay_mult * 3).until(
+        course_links = WebDriverWait(driver, delay_mult * 10).until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, 'div#div_25_1 a')
             )
@@ -190,7 +190,7 @@ def get_navpane_info(driver, course_link, delay_mult):
     """
     driver.get(course_link.url)
     try:
-        WebDriverWait(driver, delay_mult * 7).until(
+        WebDriverWait(driver, delay_mult * 10).until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, 'ul#courseMenuPalette_contents')
             )
@@ -301,10 +301,11 @@ def setup_history(path):
     history = None
     try:
         with path.open('r') as file:
-            json.load(file)
+            json.loads(file)
     except IOError:
         # set up an empty history
         history = json.loads('{"links":[]}')
+    # TODO check loaded file for errors (like if it's empty)
     return history
 
 
@@ -338,11 +339,11 @@ def dowload_file(session, link, history):
     try:
         with file_path.open('xb') as file:
             file.write(result.content)
-        # add link to history
-        history['links'].append(link.__dict__)
-        return resures_code
     except:
-        return DLResult.COLLISION
+        res_code = DLResult.COLLISION
+    # add link to history
+    history['links'].append(link.__dict__)
+    return res_code
 
 
 def download_links(driver, links, history):
@@ -354,7 +355,9 @@ def download_links(driver, links, history):
     returns a list of counters
     """
     # set up download tracking variables
-    counters = [0] * len(DLResult)
+    counters = dict()
+    for res_code in DLResult:
+        counters[res_code.name]=0
     # set up a session with the right cookies
     session = requests.Session()
     for cookie in driver.get_cookies():
@@ -362,8 +365,8 @@ def download_links(driver, links, history):
 
     print('I am downloading files now. This may take a while.')
     for count, link in enumerate(links):
-        res_code = dowload_file(session,link,history)
-        counters[res_code] =+ 1
+        res_code = dowload_file(session, link, history)
+        counters[res_code.name] =+ 1
         # progress bar
         prog_len = get_terminal_size().columns-2
         progress = count * int(prog_len / len(links))
@@ -402,10 +405,10 @@ def main():
           .format(len(courses)))
     file_links = []
     # iterate over each course
-    for course in courses[:1]: # FIXME debugging code
+    for course in courses[:1]:  # FIXME debugging code
         navpane = get_navpane_info(driver, course, args.delay)
         # iterate over each page
-        for page in navpane[:1]: # FIXME debugging
+        for page in navpane[:1]:  # FIXME debugging
             # a few pages have no (downloadable) content, skip them
             if page.name in navpane_ignore:
                 print('  *SKIPPED* {}'.format(page.name))
@@ -419,9 +422,10 @@ def main():
     print('I got {} urls from the browser.'.format(len(file_links)))
     history = setup_history(args.historypath)
     counters = download_links(driver, file_links, history)
-    print('\n{} files downloaded. {} duplicates ignored.'.format(
-        counters[DLResult.DOWNLOADED], counters[DLResult.DUPLICATE]
-    ))
+    print('Downloads are done! Here are the stats:')
+    for res_code in DLResult:
+        print('  {}: {}'.format(
+            res_code.name, counters[res_code.name]))
     try:
         with args.historypath.open('w') as file:
             json.dumps(file, indent=4)
