@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """ ~^~
 Blackboard Duster
-    Scrapes course materials from your Blackboard courses, such as lecture
-    notes and homework
+    Scrapes course materials from your Blackboard courses, such as
+    lecture notes and homework
 Author: Taylor Smith, Winter 2019
 Python Version: 3.7
 Notes: Uses Selenium to scrape urls from Blackboard, then urllib to
@@ -15,12 +15,17 @@ TODO:
     - log downloaded items, so they can be ignored next time
     - dump notes from items/assignments into a .txt : use div.details
     - don't abort if navpane is missing, reload or skip
+    - highlight elements
+    - let user press enter to move to next page
+    - download files rather than gathering urls
 ~*~ """
 
 import argparse
 import json
 import requests
 
+from enum import Enum
+from datetime import datetime
 from os import get_terminal_size
 from pathlib import Path
 from selenium import webdriver
@@ -46,10 +51,23 @@ class Link:
         self.url = url
         self.name = name
         self.save_path = save_path
+        self.lastmod = None
 
     def __repr__(self):
         return '{}\n\t{}\n\t{}'.format(
             self.url, self.name, self.save_path)
+
+    def set_lastmod(self, datestr):
+        self.lastmod = datetime.strptime(
+            datestr, '%a, %d %b %Y %H:%M:%S %Z')
+
+
+class DLResult(Enum):
+    """represents various download results"""
+    COLLISION = 1
+    DOWNLOADED = 2
+    DUPLICATE = 3
+    UPDATED = 4
 
 
 def parse_args():
@@ -62,18 +80,25 @@ def parse_args():
         '-s', '--save', metavar='path', default='.',
         help='directory to save your downloads in')
     parser.add_argument(
+        '--historypath', '--history', metavar='json',
+        default='BlackboardDuster.json',
+        help='path to blackboard duster history file. Relative to' +
+        ' download directory unless path is absolute. The file' +
+        ' will be created if it does not exit.')
+    parser.add_argument(
         '--delay', metavar='delay_mult', type=int, default=1,
         help='multiplier for sleep/delays')
     parser.add_argument(
         '-w', '--webdriver', '--wd', metavar='name', default='firefox',
-        help='browser WebDriver to use - either "firefox" or \
-            "chrome". You must have the WebDriver in your system \
-            path. Currently, only firefox is supported; that \
-            will change in the future')
+        help='browser WebDriver to use - either "firefox" or' +
+        ' "chrome". You must have the WebDriver in your system' +
+        ' path. Currently, only firefox is supported; that' +
+        ' will change in the future')
     parser.add_argument(
         '-b', '--binary', metavar='file', default=None,
-        help='currently not working. path to the binary you want to use - use if your \
-            browser binary is not in the default location')
+        help='currently not working. path to the binary you want to' +
+        ' use - use if your browser binary is not in the' +
+        ' default location')
     # parser.add_argument(
     #    '-l', '--log', metavar='level',type=int,
     #    action='store',default=6,
@@ -87,6 +112,10 @@ def parse_args():
     args = parser.parse_args()
     # convert given path string into a Path object
     args.save = Path(args.save)
+    # if history path isn't absolute, make it relative to save
+    args.historypath = Path(args.historypath)
+    if not args.historypath.is_absolute():
+        args.historypath = args.save / args.historypath
     # sterilize webdriver name
     args.webdriver = args.webdriver.lower().strip()
     return args
@@ -259,25 +288,73 @@ def gather_links(driver, page_link=None, delay_mult=1):
             )
             print('     - {}'.format(link.name))
             result.append(link)
+    # FIXME Debug code
     # recursivly parse each folder's page
-    for folder_link in folders:
-        result = result + gather_links(driver, folder_link, delay_mult)
-        print('page done')
+    # for folder_link in folders:
+    #     result = result + gather_links(driver, folder_link, delay_mult)
+    #     print('page done')
     return result
 
 
-def download_links(driver, links):
+def setup_history(path):
+    # set up the download history JSON object
+    history = None
+    try:
+        with path.open('r') as file:
+            json.load(file)
+    except IOError:
+        # set up an empty history
+        history = json.loads('{"links":[]}')
+    return history
+
+
+def dowload_file(session, link, history):
+    """uses requests to download a file"""
+    # set up download result code
+    res_code = DLResult.DOWNLOADED
+    # get the link's last modified date
+    response = session.head(link.url, allow_redirects=True)
+    link.set_lastmod(response.headers['last-modified'])
+    # check that link is not already in history
+    dupe = None
+    for hist_link in history['links']:
+        if link.url == hist_link['url']:
+            dupe = hist_link
+            continue
+    # compare link's last modified date to historical date
+    if dupe is not None:
+        hist_lastmod = datetime.strptime(
+            dupe['lastmod'], '%a, %d %b %Y %I:%M:%S %Z')
+        if link.lastmod <= hist_lastmod:
+            return DLResult.DUPLICATE
+        else:
+            res_code = DLResult.UPDATED
+    # download the file
+    result = session.get(link.url)
+    # setup the file's path and create any needed directories
+    link.save_path.mkdir(parents=True, exist_ok=True)
+    file_name = unquote(result.url.rsplit('/', 1)[1])
+    file_path = link.save_path / file_name
+    try:
+        with file_path.open('xb') as file:
+            file.write(result.content)
+        # add link to history
+        history['links'].append(link.__dict__)
+        return resures_code
+    except:
+        return DLResult.COLLISION
+
+
+def download_links(driver, links, history):
     """uses requests to download files, shows a progress bar
 
     driver: a WebDriver object
     links: a list of Link objects
-    returns a dictionary of counters
+    history: a JSON object with prevoius download history
+    returns a list of counters
     """
     # set up download tracking variables
-    counters = {
-        'downloaded': 0,
-        'duplicate': 0
-    }
+    counters = [0] * len(DLResult)
     # set up a session with the right cookies
     session = requests.Session()
     for cookie in driver.get_cookies():
@@ -285,18 +362,8 @@ def download_links(driver, links):
 
     print('I am downloading files now. This may take a while.')
     for count, link in enumerate(links):
-        # download the file
-        result = session.get(link.url)
-        # setup the file's path and create any needed directories
-        link.save_path.mkdir(parents=True, exist_ok=True)
-        file_name = unquote(result.url.rsplit('/', 1)[1])
-        file_path = link.save_path / file_name
-        try:
-            with file_path.open('xb') as file:
-                file.write(result.content)
-            counters['downloaded'] = counters['downloaded'] + 1
-        except FileNotFoundError:
-            counters['duplicate'] = counters['duplicate'] + 1
+        res_code = dowload_file(session,link,history)
+        counters[res_code] =+ 1
         # progress bar
         prog_len = get_terminal_size().columns-2
         progress = count * int(prog_len / len(links))
@@ -306,8 +373,9 @@ def download_links(driver, links):
 
 
 def main():
-    driver = None
     args = parse_args()
+    # set up the WebDriver
+    driver = None
     if args.webdriver == 'firefox':
         # driver = webdriver.Firefox(firefox_profile=get_ff_profile(args))
         driver = webdriver.Firefox()
@@ -318,24 +386,26 @@ def main():
         print('sorry, but {} is not a supported WebDriver. \
             Aborting'.format(args.webdriver))
         exit()
+
     print("here we go!")
-    driver.get(args.bb_url)
     # choose a nice size - the navpane is invisible at small widths,
     # but selenium can still see its elements
     driver.set_window_size(1200, 700)
+    driver.get(args.bb_url)
     manual_login(driver)
     print('Alright, I can drive from here.')
-    # TODO are links visible behind the cookie notice?
+    # links are visible behind the cookie notice, but it gets annoying
+    # plus, there might be legal implications
     accept_cookies(driver, args.delay)
     courses = get_courses_info(driver, args.delay, args.save)
     print('I found {} courses. I will go through each one now!'
           .format(len(courses)))
     file_links = []
     # iterate over each course
-    for course in courses:
+    for course in courses[:1]: # FIXME debugging code
         navpane = get_navpane_info(driver, course, args.delay)
         # iterate over each page
-        for page in navpane:
+        for page in navpane[:1]: # FIXME debugging
             # a few pages have no (downloadable) content, skip them
             if page.name in navpane_ignore:
                 print('  *SKIPPED* {}'.format(page.name))
@@ -344,13 +414,19 @@ def main():
             # TODO skip emails page - different for each school
             print('   {}'.format(page.name))
             # iterate over each page in course, gathering links
-            file_links = file_links + gather_links(driver, page,
-                                                   args.delay)
+            file_links = file_links + gather_links(
+                driver, page, args.delay)
     print('I got {} urls from the browser.'.format(len(file_links)))
-    counters = download_links(driver, file_links)
+    history = setup_history(args.historypath)
+    counters = download_links(driver, file_links, history)
     print('\n{} files downloaded. {} duplicates ignored.'.format(
-        counters['downloaded'], counters['duplicate']
+        counters[DLResult.DOWNLOADED], counters[DLResult.DUPLICATE]
     ))
+    try:
+        with args.historypath.open('w') as file:
+            json.dumps(file, indent=4)
+    except IOError:
+        print('failed to save download history!')
     driver.quit()
 # end main()
 
