@@ -37,6 +37,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from urllib.parse import unquote
 
 navpane_ignore = {'Announcements', 'Calendar', 'My Grades'}
+# Last Modified value in the header has a timezone. Once it is
+# converted to a datetime object, the timezone info is lost
+lastmod_parse_fmt = '%a, %d %b %Y %H:%M:%S %Z'
+lastmod_save_fmt = '%a, %d %b %Y %H:%M:%S'
 
 
 class Link:
@@ -45,6 +49,7 @@ class Link:
     'name': friendly name of link
     'url': url found on page, will (probably) get redirected
     'save_path': relative to download path, usually the page's name
+    'lastmod': last modified date
     """
 
     def __init__(self, url='', name='', save_path=None):
@@ -59,7 +64,16 @@ class Link:
 
     def set_lastmod(self, datestr):
         self.lastmod = datetime.strptime(
-            datestr, '%a, %d %b %Y %H:%M:%S %Z')
+            datestr, lastmod_parse_fmt)
+
+    def json(self):
+        result = {
+            'url': self.url,
+            'name': self.name,
+            'save_path': self.save_path.as_posix(),
+            'lastmod': self.lastmod.strftime(lastmod_save_fmt)
+        }
+        return result
 
 
 class DLResult(Enum):
@@ -288,11 +302,10 @@ def gather_links(driver, page_link=None, delay_mult=1):
             )
             print('     - {}'.format(link.name))
             result.append(link)
-    # FIXME Debug code
     # recursivly parse each folder's page
-    # for folder_link in folders:
-    #     result = result + gather_links(driver, folder_link, delay_mult)
-    #     print('page done')
+    for folder_link in folders:
+        result = result + gather_links(driver, folder_link, delay_mult)
+        print('page done')
     return result
 
 
@@ -301,11 +314,13 @@ def setup_history(path):
     history = None
     try:
         with path.open('r') as file:
-            json.loads(file)
+            history = json.load(file)
+    except json.decoder.JSONDecodeError:
+        print('current history file will not parse, aborting')
+        exit()
     except IOError:
-        # set up an empty history
+        print('history file not found, creating new history')
         history = json.loads('{"links":[]}')
-    # TODO check loaded file for errors (like if it's empty)
     return history
 
 
@@ -316,7 +331,7 @@ def dowload_file(session, link, history):
     # get the link's last modified date
     response = session.head(link.url, allow_redirects=True)
     link.set_lastmod(response.headers['last-modified'])
-    # check that link is not already in history
+    # look for link in history
     dupe = None
     for hist_link in history['links']:
         if link.url == hist_link['url']:
@@ -325,7 +340,7 @@ def dowload_file(session, link, history):
     # compare link's last modified date to historical date
     if dupe is not None:
         hist_lastmod = datetime.strptime(
-            dupe['lastmod'], '%a, %d %b %Y %I:%M:%S %Z')
+            dupe['lastmod'], lastmod_save_fmt)
         if link.lastmod <= hist_lastmod:
             return DLResult.DUPLICATE
         else:
@@ -341,8 +356,11 @@ def dowload_file(session, link, history):
             file.write(result.content)
     except:
         res_code = DLResult.COLLISION
-    # add link to history
-    history['links'].append(link.__dict__)
+    # add link to history or update lastmod
+    if dupe is None:
+        history['links'].append(link.json())
+    else:
+        dupe['lastmod'] = link.lastmod.strftime(lastmod_parse_fmt)
     return res_code
 
 
@@ -357,7 +375,7 @@ def download_links(driver, links, history):
     # set up download tracking variables
     counters = dict()
     for res_code in DLResult:
-        counters[res_code.name]=0
+        counters[res_code.name] = 0
     # set up a session with the right cookies
     session = requests.Session()
     for cookie in driver.get_cookies():
@@ -366,17 +384,20 @@ def download_links(driver, links, history):
     print('I am downloading files now. This may take a while.')
     for count, link in enumerate(links):
         res_code = dowload_file(session, link, history)
-        counters[res_code.name] =+ 1
+        counters[res_code.name] += 1
         # progress bar
         prog_len = get_terminal_size().columns-2
-        progress = count * int(prog_len / len(links))
+        progress = (count + 1) * int(prog_len / len(links))
         print('|{}{}|'.format('#'*progress, '-'*(prog_len-progress)),
               end='\r')
+    # erase progress bar
+    print('{}'.format(' '*get_terminal_size().columns))
     return counters
 
 
 def main():
     args = parse_args()
+    history = setup_history(args.historypath)
     # set up the WebDriver
     driver = None
     if args.webdriver == 'firefox':
@@ -405,10 +426,10 @@ def main():
           .format(len(courses)))
     file_links = []
     # iterate over each course
-    for course in courses[:1]:  # FIXME debugging code
+    for course in courses:
         navpane = get_navpane_info(driver, course, args.delay)
         # iterate over each page
-        for page in navpane[:1]:  # FIXME debugging
+        for page in navpane:
             # a few pages have no (downloadable) content, skip them
             if page.name in navpane_ignore:
                 print('  *SKIPPED* {}'.format(page.name))
@@ -420,7 +441,6 @@ def main():
             file_links = file_links + gather_links(
                 driver, page, args.delay)
     print('I got {} urls from the browser.'.format(len(file_links)))
-    history = setup_history(args.historypath)
     counters = download_links(driver, file_links, history)
     print('Downloads are done! Here are the stats:')
     for res_code in DLResult:
@@ -428,7 +448,7 @@ def main():
             res_code.name, counters[res_code.name]))
     try:
         with args.historypath.open('w') as file:
-            json.dumps(file, indent=4)
+            json.dump(history, file, indent=4)
     except IOError:
         print('failed to save download history!')
     driver.quit()
