@@ -24,7 +24,7 @@ import argparse
 import json
 import requests
 
-from enum import Enum, auto
+from enum import Enum
 from datetime import datetime
 from os import get_terminal_size
 from pathlib import Path
@@ -78,10 +78,27 @@ class Link:
 
 class DLResult(Enum):
     """represents various download results"""
-    COLLISION = auto()
-    DOWNLOADED = auto()
-    DUPLICATE = auto()
-    UPDATED = auto()
+    COLLISION = 0
+    DOWNLOADED = 1
+    DUPLICATE = 2
+    UPDATED = 3
+
+
+def apply_style(driver, element, res_code):
+    style = 'border: '
+    if res_code == DLResult.COLLISION:
+        style += '4px dotted red'
+    elif res_code == DLResult.DOWNLOADED:
+        style += '4px solid green'
+    elif res_code == DLResult.DUPLICATE:
+        style += '4px dashed cyan'
+    elif res_code == DLResult.UPDATED:
+        style += '4px solid green'
+    else:  # UNKNOWN CODE
+        style += '2px dotted pink'
+    driver.execute_script(
+        'arguments[0].setAttribute("style", arguments[1]);',
+        element, style)
 
 
 def parse_args():
@@ -228,12 +245,15 @@ def get_navpane_info(driver, course_link, delay_mult):
 
 
 def gather_links(driver, page_link=None, delay_mult=1):
-    """gathers available file urls on the given page, handles folders
+    """gathers and highlights available file urls on the given page
 
     driver: a selenium WebDriver
     page_link: link object, if None then the loaded page is used
     delay_mult: delay multiplier
-    returns a Link array
+    returns a dictionary:
+        links: a list of Link objects
+        counters: a list of counters, indexed by DLResult
+        folders: a list of sub-folders on the page
     """
     # global driver
     # global args
@@ -301,10 +321,10 @@ def gather_links(driver, page_link=None, delay_mult=1):
             )
             print('     - {}'.format(link.name))
             result.append(link)
-    # recursivly parse each folder's page
-    for folder_link in folders:
-        result = result + gather_links(driver, folder_link, delay_mult)
-        print('page done')
+    # # recursivly parse each folder's page
+    # for folder_link in folders:
+    #     result = result + gather_links(driver, folder_link, delay_mult)
+    #     print('page done')
     return result
 
 
@@ -372,9 +392,7 @@ def download_links(driver, links, history):
     returns a list of counters
     """
     # set up download tracking variables
-    counters = dict()
-    for res_code in DLResult:
-        counters[res_code.name] = 0
+    counters = [0]*len(DLResult)
     # set up a session with the right cookies
     session = requests.Session()
     for cookie in driver.get_cookies():
@@ -383,7 +401,7 @@ def download_links(driver, links, history):
     print('I am downloading files now. This may take a while.')
     for count, link in enumerate(links):
         res_code = dowload_file(session, link, history)
-        counters[res_code.name] += 1
+        counters[res_code.value] += 1
         # progress bar
         prog_len = get_terminal_size().columns-2
         progress = (count + 1) * int(prog_len / len(links))
@@ -392,6 +410,11 @@ def download_links(driver, links, history):
     # erase progress bar
     print('{}'.format(' '*get_terminal_size().columns))
     return counters
+
+
+def process_page(page, driver, session, history, args):
+    """gathers urls and downloads file from a page"""
+    pass
 
 
 def main():
@@ -425,10 +448,11 @@ def main():
           .format(len(courses)))
     file_links = []
     # iterate over each course
-    for course in courses:
+    for course in courses[:1]:
         navpane = get_navpane_info(driver, course, args.delay)
+        # TODO use a stack to hold pages
         # iterate over each page
-        for page in navpane:
+        for page in navpane[:1]:
             # a few pages have no (downloadable) content, skip them
             if page.name in navpane_ignore:
                 print('  *SKIPPED* {}'.format(page.name))
@@ -444,7 +468,7 @@ def main():
     print('Downloads are done! Here are the stats:')
     for res_code in DLResult:
         print('  {}: {}'.format(
-            res_code.name, counters[res_code.name]))
+            res_code.name, counters[res_code.value]))
     try:
         with args.historypath.open('w') as file:
             json.dump(history, file, indent=4)

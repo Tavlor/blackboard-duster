@@ -49,7 +49,7 @@ This script works in 2 phases:
     ```
     The path is evaluated using `os.path.abspath`, so it can be absolute or relative to your working directory.
 
-A history of downloads will be created in `BlackboardDuster.json`. Future runs will use the history to check for updates and already-downloaded files
+A history of downloads will be created in `BlackboardDuster.json`. Future runs will use the history to check for updates and already-downloaded files. Moving, renaming, or modifying files will not affect the download history.
 
 # Troubleshooting
 ### "The script does not wait long enough for the pages to load!"
