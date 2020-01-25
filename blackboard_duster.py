@@ -52,10 +52,11 @@ class Link:
     'lastmod': last modified date
     """
 
-    def __init__(self, url='', name='', save_path=None):
+    def __init__(self, url, name='', save_path=None, element=None):
         self.url = url
         self.name = name
         self.save_path = save_path
+        self.element = element
         self.lastmod = None
 
     def __repr__(self):
@@ -152,6 +153,21 @@ def parse_args():
 # end parse_args()
 
 
+def setup_history(path):
+    # set up the download history JSON object
+    history = None
+    try:
+        with path.open('r') as file:
+            history = json.load(file)
+    except json.decoder.JSONDecodeError:
+        print('current history file will not parse, aborting')
+        exit()
+    except IOError:
+        print('history file not found, creating new history')
+        history = json.loads('{"links":[]}')
+    return history
+
+
 def manual_login(driver):
     """allow user to signs in manually
 
@@ -244,26 +260,23 @@ def get_navpane_info(driver, course_link, delay_mult):
     return result
 
 
-def gather_links(driver, page_link=None, delay_mult=1):
+def gather_links(driver, page_link, delay_mult=1):
     """gathers and highlights available file urls on the given page
 
+    page should already be loaded
+
     driver: a selenium WebDriver
-    page_link: link object, if None then the loaded page is used
+    page_link: Link object
     delay_mult: delay multiplier
+
     returns a dictionary:
         links: a list of Link objects
-        counters: a list of counters, indexed by DLResult
         folders: a list of sub-folders on the page
     """
-    # global driver
-    # global args
-    if page_link is None:
-        # assume right page is already loaded
-        page_link = Link(driver.current_url)
-    else:
-        driver.get(page_link.url)
-    result = []
-    folders = []
+    results = {
+        'links': [],
+        'folders': []
+    }
     try:
         WebDriverWait(driver, delay_mult * 3).until(
             EC.presence_of_element_located((
@@ -272,7 +285,7 @@ def gather_links(driver, page_link=None, delay_mult=1):
         )
     except TimeoutException:
         print('This page does not have a content list.')
-        return result
+        return results
     # get a list of all items in the content list
     page_content = driver.find_elements_by_css_selector(
         'ul#content_listContainer > li')
@@ -285,62 +298,52 @@ def gather_links(driver, page_link=None, delay_mult=1):
         # print('    {}: {}'.format(i_type, i_name))
         if i_type == 'File':
             # files are just a link
+            link_element = item.find_element_by_css_selector(
+                'a')
             link = Link(
-                item.find_element_by_css_selector(
-                    'a').get_attribute('href'),
+                link_element.get_attribute('href'),
                 i_name,
-                page_link.save_path
+                page_link.save_path,
+                link_element
             )
-            result.append(link)
+            results['links'].append(link)
         elif i_type == 'Content Folder':
             # folders contain another page
+            # no need to track its element
             link = Link(
                 item.find_element_by_css_selector(
                     'a').get_attribute('href'),
                 i_name,
                 (page_link.save_path / i_name)
             )
-            folders.append(link)
+            results['folders'].append(link)
+        elif i_type == 'Web Link':
+            # TODO dump links into a per-page file (markdown?)
+            pass
         else:
-            print('    ** Unsupported item type - attachments will be',
-                  ' collected **')
-        # look for attachments; Items and Assignments usually have
-        # some
+            # FIXME this is really ugly
+            print('    ** {} is not a supported item'.format(i_type),
+                  ' type - attachments will still be collected **')
+
+        # find attachments; Items and Assignments usually have some
         i_files = item.find_elements_by_css_selector(
             'ul.attachments > li')
-        # if there are multiple attachments, stick them in a folder
+        # if there are multiple attachments on the item, stick them in
+        # a new folder
         save_path = page_link.save_path
         if len(i_files) > 1:
             save_path = save_path / i_name
         for file in i_files:
+            link_element = file.find_element_by_css_selector('a')
             link = Link(
-                file.find_element_by_css_selector(
-                    'a').get_attribute('href'),
+                link_element.get_attribute('href'),
                 file.find_element_by_css_selector('a').text.strip(),
-                save_path
+                save_path,
+                link_element
             )
-            print('     - {}'.format(link.name))
-            result.append(link)
-    # # recursivly parse each folder's page
-    # for folder_link in folders:
-    #     result = result + gather_links(driver, folder_link, delay_mult)
-    #     print('page done')
-    return result
-
-
-def setup_history(path):
-    # set up the download history JSON object
-    history = None
-    try:
-        with path.open('r') as file:
-            history = json.load(file)
-    except json.decoder.JSONDecodeError:
-        print('current history file will not parse, aborting')
-        exit()
-    except IOError:
-        print('history file not found, creating new history')
-        history = json.loads('{"links":[]}')
-    return history
+            # print('     - {}'.format(link.name))
+            results['links'].append(link)
+    return results
 
 
 def dowload_file(session, link, history):
@@ -412,9 +415,30 @@ def download_links(driver, links, history):
     return counters
 
 
-def process_page(page, driver, session, history, args):
-    """gathers urls and downloads file from a page"""
-    pass
+def process_page(page_link, driver, session, history, args):
+    """gathers urls and downloads file from a page
+
+    page_link: link object
+    driver: a selenium WebDriver
+    session: a requests Session
+    history: the JSON download history
+    args: the parsed arguments object
+
+    returns a dictionary:
+        counters: a list of counters, indexed by DLResult values
+        folders: a list of Links for sub-folders on the page
+    """
+    results = {
+        'counters': [],
+        'folders': []
+
+    }
+    driver.get(page_link.url)
+
+    gather_results = gather_links(page_link,driver, args.delay)
+    results['folders'] = gather_results['folders']
+    return results
+
 
 
 def main():
