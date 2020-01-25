@@ -1,18 +1,21 @@
 # Blackboard Duster
-A scraper script for Blackboard, built with python, selenium and the requests library. Downloads files from your courses, and sorts them neatly into folders.
+A scraper script for Blackboard, built with python, selenium, and the requests library. It downloads files from your courses, and sorts them neatly into folders.
 
 ## Requirements
 - Python 3
 - [Selenium](https://selenium.dev/selenium/docs/api/py/index.html) for python
 
   `pip install selenium`
+
 - The [requests library](https://2.python-requests.org/en/master/)
 
   `pip install requests`
+
 - The WebDriver for your browser - make sure its version matches your browser version!
    - [Firefox WebDriver](https://github.com/mozilla/geckodriver)
 
       macOS users with homebrew can use `brew install geckodriver`
+
    - [Chrome WebDriver](https://sites.google.com/a/chromium.org/chromedriver/)
 
       macOS users with homebrew can use `brew cask install chromedriver`
@@ -45,6 +48,8 @@ This script works in 2 phases:
     python blackboard-duster.py "www.myschool.edu/blackboard" -s "/Users/me/school"
     ```
     The path is evaluated using `os.path.abspath`, so it can be absolute or relative to your working directory.
+
+A history of downloads will be created in `BlackboardDuster.json`. Future runs will use the history to check for updates and already-downloaded files
 
 # Troubleshooting
 ### "The script does not wait long enough for the pages to load!"

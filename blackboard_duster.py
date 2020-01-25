@@ -110,9 +110,8 @@ def parse_args():
         ' will change in the future')
     parser.add_argument(
         '-b', '--binary', metavar='file', default=None,
-        help='currently not working. path to the binary you want to' +
-        ' use - use if your browser binary is not in the' +
-        ' default location')
+        help='Path to the binary you want to use - use if your' +
+        ' browser binary is not in the default location')
     # parser.add_argument(
     #    '-l', '--log', metavar='level',type=int,
     #    action='store',default=6,
