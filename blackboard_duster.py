@@ -9,15 +9,10 @@ Notes: Uses Selenium to scrape urls from Blackboard, then urllib to
     download files
 TODO:
     - avoid redundant visit to course home page (just ignore it?)
-    - make notes on where css selectors come from, so users can change
-        if needed
     - ignore useless navpane elements - add custom ignore arg
-    - log downloaded items, so they can be ignored next time
     - dump notes from items/assignments into a .txt : use div.details
     - don't abort if navpane is missing, reload or skip
-    - highlight elements
-    - let user press enter to move to next page
-    - download files rather than gathering urls
+    TODO UPDATE THE README
 ~*~ """
 
 import argparse
@@ -46,9 +41,10 @@ lastmod_save_fmt = '%a, %d %b %Y %H:%M:%S'
 class Link:
     """contains useful information about a link
 
-    'name': friendly name of link
     'url': url found on page, will (probably) get redirected
+    'name': friendly name of link
     'save_path': relative to download path, usually the page's name
+    'element': the selenium Element that the url came from
     'lastmod': last modified date
     """
 
@@ -94,7 +90,7 @@ def apply_style(driver, element, res_code):
     elif res_code == DLResult.DUPLICATE:
         style += '4px dashed cyan'
     elif res_code == DLResult.UPDATED:
-        style += '4px solid green'
+        style += '4px solid blue'
     else:  # UNKNOWN CODE
         style += '2px dotted pink'
     driver.execute_script(
@@ -268,7 +264,7 @@ def get_navpane_info(driver, course_link, delay_mult):
     return result
 
 
-def gather_links(driver, page_link, delay_mult=1):
+def gather_links(page_link, driver, delay_mult=1):
     """gathers and highlights available file urls on the given page
 
     page should already be loaded
@@ -385,6 +381,8 @@ def dowload_file(session, link, history):
         with file_path.open('xb') as file:
             file.write(result.content)
     except:
+        print("There is already a file with name {} saved in {}!"
+        .format(file_name,file_path))
         res_code = DLResult.COLLISION
     # add link to history or update lastmod
     if dupe is None:
@@ -404,18 +402,19 @@ def download_links(links, driver, session, history):
     """
     # set up download tracking variables
     counters = [0]*len(DLResult)
+    # set progress bar length
+    prog_len = get_terminal_size().columns-2
     for count, link in enumerate(links):
         res_code = dowload_file(session, link, history)
         counters[res_code.value] += 1
         # mark link to indicate download result to user
         apply_style(driver, link.element, res_code)
         # draw progress bar
-        prog_len = get_terminal_size().columns-2
         progress = (count + 1) * int(prog_len / len(links))
         print('|{}{}|'.format('#'*progress, '-'*(prog_len-progress)),
               end='\r')
     # erase progress bar
-    print('{}'.format(' '*get_terminal_size().columns))
+    print('{}'.format(' '*get_terminal_size().columns),end='\r')
     return counters
 
 
@@ -491,6 +490,7 @@ def main():
                 page, driver, session, history, args)
             for i, p_ctr in enumerate(page_counters):
                 counters[i] += p_ctr
+            # TODO save history after every page
     print('Downloads are done! Here are the stats:')
     for res_code in DLResult:
         print('  {}: {}'.format(
