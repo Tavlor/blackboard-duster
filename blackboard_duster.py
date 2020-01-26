@@ -168,6 +168,14 @@ def setup_history(path):
     return history
 
 
+def setup_session(driver):
+    """copies login cookies from WebDriver into a requests session"""
+    session = requests.Session()
+    for cookie in driver.get_cookies():
+        session.cookies.set(cookie['name'], cookie['value'])
+    return session
+
+
 def manual_login(driver):
     """allow user to signs in manually
 
@@ -386,7 +394,7 @@ def dowload_file(session, link, history):
     return res_code
 
 
-def download_links(driver, links, history):
+def download_links(links, driver, session, history):
     """uses requests to download files, shows a progress bar
 
     driver: a WebDriver object
@@ -396,16 +404,12 @@ def download_links(driver, links, history):
     """
     # set up download tracking variables
     counters = [0]*len(DLResult)
-    # set up a session with the right cookies
-    session = requests.Session()
-    for cookie in driver.get_cookies():
-        session.cookies.set(cookie['name'], cookie['value'])
-
-    print('I am downloading files now. This may take a while.')
     for count, link in enumerate(links):
         res_code = dowload_file(session, link, history)
         counters[res_code.value] += 1
-        # progress bar
+        # mark link to indicate download result to user
+        apply_style(driver, link.element, res_code)
+        # draw progress bar
         prog_len = get_terminal_size().columns-2
         progress = (count + 1) * int(prog_len / len(links))
         print('|{}{}|'.format('#'*progress, '-'*(prog_len-progress)),
@@ -416,29 +420,31 @@ def download_links(driver, links, history):
 
 
 def process_page(page_link, driver, session, history, args):
-    """gathers urls and downloads file from a page
+    """gathers urls and downloads file from a page, handles folders
 
     page_link: link object
     driver: a selenium WebDriver
-    session: a requests Session
+    session: a requests Session, with blackboard cookies
     history: the JSON download history
     args: the parsed arguments object
 
-    returns a dictionary:
-        counters: a list of counters, indexed by DLResult values
-        folders: a list of Links for sub-folders on the page
+    returns a list of counters, indexed by DLResult values
     """
-    results = {
-        'counters': [],
-        'folders': []
-
-    }
     driver.get(page_link.url)
-
-    gather_results = gather_links(page_link,driver, args.delay)
-    results['folders'] = gather_results['folders']
-    return results
-
+    gather_results = gather_links(page_link, driver, args.delay)
+    print('I am downloading files from this page now. it may take a while.')
+    counters = download_links(
+        gather_results['links'], driver, session, history)
+    # wait for user input
+    print('If there is anything that did not download on this page,' +
+          ' take care of it now.')
+    input('Press enter once you are ready.')
+    for folder_link in gather_results['folders']:
+        sub_counters = process_page(
+            folder_link, driver, session, history, args)
+        for i, s_ctr in enumerate(sub_counters):
+            counters[i] += s_ctr
+    return counters
 
 
 def main():
@@ -463,6 +469,7 @@ def main():
     driver.set_window_size(1200, 700)
     driver.get(args.bb_url)
     manual_login(driver)
+    session = setup_session(driver)
     print('Alright, I can drive from here.')
     # links are visible behind the cookie notice, but it gets annoying
     # plus, there might be legal implications
@@ -470,25 +477,20 @@ def main():
     courses = get_courses_info(driver, args.delay, args.save)
     print('I found {} courses. I will go through each one now!'
           .format(len(courses)))
-    file_links = []
-    # iterate over each course
+    counters = [0]*len(DLResult)
     for course in courses[:1]:
         navpane = get_navpane_info(driver, course, args.delay)
-        # TODO use a stack to hold pages
-        # iterate over each page
         for page in navpane[:1]:
             # a few pages have no (downloadable) content, skip them
             if page.name in navpane_ignore:
                 print('  *SKIPPED* {}'.format(page.name))
                 continue
-            # TODO don't reload the home page
             # TODO skip emails page - different for each school
             print('   {}'.format(page.name))
-            # iterate over each page in course, gathering links
-            file_links = file_links + gather_links(
-                driver, page, args.delay)
-    print('I got {} urls from the browser.'.format(len(file_links)))
-    counters = download_links(driver, file_links, history)
+            page_counters = process_page(
+                page, driver, session, history, args)
+            for i, p_ctr in enumerate(page_counters):
+                counters[i] += p_ctr
     print('Downloads are done! Here are the stats:')
     for res_code in DLResult:
         print('  {}: {}'.format(
