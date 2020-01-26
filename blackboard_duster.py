@@ -92,7 +92,7 @@ def apply_style(driver, element, res_code):
     elif res_code == DLResult.UPDATED:
         style += '4px solid blue'
     else:  # UNKNOWN CODE
-        style += '2px dotted pink'
+        style += '1px dotted magenta'
     driver.execute_script(
         'arguments[0].setAttribute("style", arguments[1]);',
         element, style)

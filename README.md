@@ -41,12 +41,11 @@ No other browsers are currently supported.
 
 ## How it works
 When it first runs, the script waits for the Blackboard home page to appear, so you can sign in or even navagate to Blackboard if needed. After you reach the home page, it visits each course page, downloading files. Each link is highlighted with a box to indicate how the download went:
-- <b style="border:4px solid green">solid green border:</b> successful download
-- <b style="border:4px solid blue">solid blue border:</b> a newer version was successfuly downloaded
-
-- <b style="border:4px dashed cyan">dashed cyan border:</b> file was downloaded previously, and there is no newer version
-- <b style="border:4px dotted red">dotted red border:</b> file collision - there is a file in the way that is not recorded in the download history. If you know this is the right file (for instance, if you downloaded it manually earlier), you can ignore this. If it bothers you, delete or move the file.
-- <b style="border:2px dotted magenta">dotted magenta border:</b> you should never see this; it means I made a mistake in the script. let me know, 'kay?
+- <b style="color: green; border:4px solid green">solid green border:</b> successful download
+- <b style="color: blue; border:4px solid blue">solid blue border:</b> a newer version was successfuly downloaded
+- <b style="color: cyan; border:4px dashed cyan">dashed cyan border:</b> file was downloaded previously, and there is no newer version
+- <b style="color: red; border:4px dotted red">dotted red border:</b> file collision - there is a file in the way that is not recorded in the download history. If you know this is the right file (for instance, if you downloaded it manually earlier), you can ignore this. If it bothers you, delete or move the file.
+- <b style="color: magenta; border:1px dotted magenta">dotted magenta border:</b> you should never see this; it means I made a mistake in the script. let me know, 'kay?
 
 By default downloads are saved in your working directory, but the `-s <DIRECTORY PATH>` option lets you change that.
 ```bash
