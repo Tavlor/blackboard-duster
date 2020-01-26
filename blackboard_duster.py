@@ -46,6 +46,7 @@ class Link:
     'save_path': relative to download path, usually the page's name
     'element': the selenium Element that the url came from
     'lastmod': last modified date
+    'full_path': full save path, used for troubleshooting
     """
 
     def __init__(self, url, name='', save_path=None, element=None):
@@ -54,6 +55,7 @@ class Link:
         self.save_path = save_path
         self.element = element
         self.lastmod = None
+        self.full_path = None
 
     def __repr__(self):
         return '{}\n\t{}\n\t{}'.format(
@@ -62,6 +64,9 @@ class Link:
     def set_lastmod(self, datestr):
         self.lastmod = datetime.strptime(
             datestr, lastmod_parse_fmt)
+
+    # def set_full_path(self, path):
+    #     self.full_path = path
 
     def json(self):
         result = {
@@ -373,7 +378,7 @@ def dowload_file(session, link, history):
             res_code = DLResult.UPDATED
     # download the file
     result = session.get(link.url)
-    # setup the file's path and create any needed directories
+    # setup the file's full path and create any needed directories
     link.save_path.mkdir(parents=True, exist_ok=True)
     file_name = unquote(result.url.rsplit('/', 1)[1])
     file_path = link.save_path / file_name
@@ -381,8 +386,8 @@ def dowload_file(session, link, history):
         with file_path.open('xb') as file:
             file.write(result.content)
     except:
-        print("There is already a file with name {} saved in {}!"
-        .format(file_name,file_path))
+        # hang onto the full path to report it later
+        link.full_path = file_path
         res_code = DLResult.COLLISION
     # add link to history or update lastmod
     if dupe is None:
@@ -402,6 +407,8 @@ def download_links(links, driver, session, history):
     """
     # set up download tracking variables
     counters = [0]*len(DLResult)
+    # watch for collisions
+    collided = []
     # set progress bar length
     prog_len = get_terminal_size().columns-2
     for count, link in enumerate(links):
@@ -409,12 +416,21 @@ def download_links(links, driver, session, history):
         counters[res_code.value] += 1
         # mark link to indicate download result to user
         apply_style(driver, link.element, res_code)
+        # if it's a collision, hang onto the link
+        if res_code == DLResult.COLLISION:
+            collided.append(link)
         # draw progress bar
         progress = (count + 1) * int(prog_len / len(links))
         print('|{}{}|'.format('#'*progress, '-'*(prog_len-progress)),
               end='\r')
     # erase progress bar
-    print('{}'.format(' '*get_terminal_size().columns),end='\r')
+    print('{}'.format(' '*get_terminal_size().columns), end='\r')
+    # let user know what collided
+    if len(collided) > 0:
+        print('Some of the files on this page could not download',
+              ' beacuse another file was in the way:')
+        for link in collided:
+            print('    {}'.format(link.full_path))
     return counters
 
 
