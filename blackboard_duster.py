@@ -12,7 +12,7 @@ TODO:
     - ignore useless navpane elements - add custom ignore arg
     - dump notes from items/assignments into a .txt : use div.details
     - don't abort if navpane is missing, reload or skip
-    TODO UPDATE THE README
+    - put a 'download progress' lable on progress bar
 ~*~ """
 
 import argparse
@@ -64,9 +64,6 @@ class Link:
     def set_lastmod(self, datestr):
         self.lastmod = datetime.strptime(
             datestr, lastmod_parse_fmt)
-
-    # def set_full_path(self, path):
-    #     self.full_path = path
 
     def json(self):
         result = {
@@ -131,16 +128,6 @@ def parse_args():
         '-b', '--binary', metavar='file', default=None,
         help='Path to the binary you want to use - use if your' +
         ' browser binary is not in the default location')
-    # parser.add_argument(
-    #    '-l', '--log', metavar='level',type=int,
-    #    action='store',default=6,
-    #    help='Priority level for logging. 1:debug, 2:info, '
-    #    '3:warning, 4:error, 5:critical. '
-    #    'Any value > 5 disables logging')
-    # parser.add_argument(
-    #    '-p', '--print', metavar='level',type=int,
-    #    action='store',default=0,
-    #    help='Priority level for printing, see --log.')
     args = parser.parse_args()
     # convert given path string into a Path object
     args.save = Path(args.save)
@@ -329,6 +316,9 @@ def gather_links(page_link, driver, delay_mult=1):
         elif i_type == 'Web Link':
             # TODO dump links into a per-page file (markdown?)
             pass
+        elif i_type == 'Item':
+            # TODO dump info into a per-page file (markdown?)
+            pass
         else:
             # FIXME this is really ugly
             print('    ** {} is not a supported item'.format(i_type),
@@ -385,10 +375,13 @@ def dowload_file(session, link, history):
     try:
         with file_path.open('xb') as file:
             file.write(result.content)
+        # FIXME updated files still trigger exception
     except:
         # hang onto the full path to report it later
         link.full_path = file_path
         res_code = DLResult.COLLISION
+        # TODO hash the two files to see if they are the same
+        # FIXME collided files are still added to history, collision is forgotten
     # add link to history or update lastmod
     if dupe is None:
         history['links'].append(link.json())
@@ -424,13 +417,15 @@ def download_links(links, driver, session, history):
         print('|{}{}|'.format('#'*progress, '-'*(prog_len-progress)),
               end='\r')
     # erase progress bar
-    print('{}'.format(' '*get_terminal_size().columns), end='\r')
+    print(' '*get_terminal_size().columns, end='\r')
     # let user know what collided
     if len(collided) > 0:
         print('Some of the files on this page could not download',
-              ' beacuse another file was in the way:')
+              'beacuse another file was in the way:')
         for link in collided:
-            print('    {}'.format(link.full_path))
+            print('  ~ "{}"'.format(link.full_path))
+        print('The associated links are marked with a dotted red',
+            'outline if you need to manually download these files.')
     return counters
 
 
@@ -447,13 +442,17 @@ def process_page(page_link, driver, session, history, args):
     """
     driver.get(page_link.url)
     gather_results = gather_links(page_link, driver, args.delay)
-    print('I am downloading files from this page now. it may take a while.')
     counters = download_links(
         gather_results['links'], driver, session, history)
+    # save history after every page
+    try:
+        with args.historypath.open('w') as file:
+            json.dump(history, file, indent=4)
+    except IOError:
+        print('failed to save download history! You may want to',
+            'investigate before continuing to the next page.')
     # wait for user input
-    print('If there is anything that did not download on this page,' +
-          ' take care of it now.')
-    input('Press enter once you are ready.')
+    input('Press enter here once you are ready to move on: ')
     for folder_link in gather_results['folders']:
         sub_counters = process_page(
             folder_link, driver, session, history, args)
@@ -494,6 +493,7 @@ def main():
           .format(len(courses)))
     counters = [0]*len(DLResult)
     for course in courses[:1]:
+        print('{}'.format(course.name))
         navpane = get_navpane_info(driver, course, args.delay)
         for page in navpane[:1]:
             # a few pages have no (downloadable) content, skip them
@@ -501,21 +501,16 @@ def main():
                 print('  *SKIPPED* {}'.format(page.name))
                 continue
             # TODO skip emails page - different for each school
-            print('   {}'.format(page.name))
+            print('  {}'.format(page.name))
             page_counters = process_page(
                 page, driver, session, history, args)
             for i, p_ctr in enumerate(page_counters):
                 counters[i] += p_ctr
-            # TODO save history after every page
-    print('Downloads are done! Here are the stats:')
+    print('#'*get_terminal_size().columns, end='\r')
+    print('I am all done! Here are the stats:')
     for res_code in DLResult:
         print('  {}: {}'.format(
             res_code.name, counters[res_code.value]))
-    try:
-        with args.historypath.open('w') as file:
-            json.dump(history, file, indent=4)
-    except IOError:
-        print('failed to save download history!')
     driver.quit()
 # end main()
 
