@@ -93,7 +93,7 @@ def apply_style(driver, element, res_code):
         style += '4px dashed cyan'
     elif res_code == DLResult.UPDATED:
         style += '4px solid blue'
-    else:  # UNKNOWN CODE
+    else:  # PENDING DOWNLOAD
         style += '1px dotted magenta'
     driver.execute_script(
         'arguments[0].setAttribute("style", arguments[1]);',
@@ -101,6 +101,8 @@ def apply_style(driver, element, res_code):
 
 
 def parse_args():
+    # TODO full-auto mode
+    # TODO custom page skip list
     parser = argparse.ArgumentParser(
         description='Scrapes files from Blackboard courses')
     parser.add_argument(
@@ -199,6 +201,7 @@ def get_courses_info(driver, delay_mult, save_root):
     expects homepage to already be loaded
     """
     result = []
+    # TODO course announcements are included in the list
     try:
         course_links = WebDriverWait(driver, delay_mult * 10).until(
             EC.presence_of_element_located(
@@ -238,9 +241,8 @@ def get_navpane_info(driver, course_link, delay_mult):
             )
         )
     except TimeoutException:
-        print('I could not access the navpane! Aborting')
-        driver.quit()
-        exit()
+        print('I could not access the navpane! skipping')
+        return []
     page_link_elements = driver.find_elements_by_css_selector(
         'ul#courseMenuPalette_contents a')
     result = []
@@ -302,6 +304,7 @@ def gather_links(page_link, driver, delay_mult=1):
                 page_link.save_path,
                 link_element
             )
+            apply_style(driver, link.element, None)
             results['links'].append(link)
         elif i_type == 'Content Folder':
             # folders contain another page
@@ -315,6 +318,7 @@ def gather_links(page_link, driver, delay_mult=1):
             results['folders'].append(link)
         elif i_type == 'Web Link':
             # TODO dump links into a per-page file (markdown?)
+            # TODO ignore webpages but download files
             pass
         elif i_type == 'Item':
             # TODO dump info into a per-page file (markdown?)
@@ -341,6 +345,7 @@ def gather_links(page_link, driver, delay_mult=1):
                 link_element
             )
             # print('     - {}'.format(link.name))
+            apply_style(driver, link.element, None)
             results['links'].append(link)
     return results
 
@@ -416,8 +421,10 @@ def download_links(links, driver, session, history):
         progress = (count + 1) * int(prog_len / len(links))
         print('|{}{}|'.format('#'*progress, '-'*(prog_len-progress)),
               end='\r')
-    # erase progress bar
-    print(' '*get_terminal_size().columns, end='\r')
+    # erase progress bar using a ansi escape code
+    # \033[K' clears the row
+    print('\033[K', end='\r')
+    # TODO let user know how many items downloaded ect
     # let user know what collided
     if len(collided) > 0:
         print('Some of the files on this page could not download',
@@ -425,7 +432,7 @@ def download_links(links, driver, session, history):
         for link in collided:
             print('  ~ "{}"'.format(link.full_path))
         print('The associated links are marked with a dotted red',
-            'outline if you need to manually download these files.')
+              'outline if you need to manually download these files.')
     return counters
 
 
@@ -440,6 +447,7 @@ def process_page(page_link, driver, session, history, args):
 
     returns a list of counters, indexed by DLResult values
     """
+    print('  {}'.format(page_link.name))
     driver.get(page_link.url)
     gather_results = gather_links(page_link, driver, args.delay)
     counters = download_links(
@@ -450,9 +458,12 @@ def process_page(page_link, driver, session, history, args):
             json.dump(history, file, indent=4)
     except IOError:
         print('failed to save download history! You may want to',
-            'investigate before continuing to the next page.')
+              'investigate before continuing to the next page.')
     # wait for user input
     input('Press enter here once you are ready to move on: ')
+    # erase prompt using ansi escape codes since a newline was printed
+    # '\033[A' moves cursor up once, '\033[K' clears the row
+    print('\033[A\033[K', end='\r')
     for folder_link in gather_results['folders']:
         sub_counters = process_page(
             folder_link, driver, session, history, args)
@@ -492,21 +503,20 @@ def main():
     print('I found {} courses. I will go through each one now!'
           .format(len(courses)))
     counters = [0]*len(DLResult)
-    for course in courses[:1]:
+    for course in courses:
         print('{}'.format(course.name))
         navpane = get_navpane_info(driver, course, args.delay)
-        for page in navpane[:1]:
+        for page in navpane:
             # a few pages have no (downloadable) content, skip them
             if page.name in navpane_ignore:
                 print('  *SKIPPED* {}'.format(page.name))
                 continue
             # TODO skip emails page - different for each school
-            print('  {}'.format(page.name))
             page_counters = process_page(
                 page, driver, session, history, args)
             for i, p_ctr in enumerate(page_counters):
                 counters[i] += p_ctr
-    print('#'*get_terminal_size().columns, end='\r')
+    print('#'*get_terminal_size().columns)
     print('I am all done! Here are the stats:')
     for res_code in DLResult:
         print('  {}: {}'.format(
