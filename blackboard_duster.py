@@ -203,6 +203,7 @@ def get_courses_info(driver, delay_mult, save_root):
     result = []
     # TODO course announcements are included in the list
     try:
+        # wait for the course list to load
         course_links = WebDriverWait(driver, delay_mult * 10).until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, 'div#div_25_1 a')
@@ -212,8 +213,10 @@ def get_courses_info(driver, delay_mult, save_root):
         print('I did not see your course list! Aborting')
         driver.quit()
         exit()
+    # be more specific when selecting the links - the wait statement's
+    # selector includes announcement links, which we don't want
     course_links = driver.find_elements_by_css_selector(
-        'div#div_25_1 a')
+        'div#div_25_1 > div > ul > li > a')
     for c_l in course_links:
         link = Link(
             c_l.get_attribute('href'),
