@@ -13,6 +13,7 @@ TODO:
     - dump notes from items/assignments into a .txt : use div.details
     - don't abort if navpane is missing, reload or skip
     - put a 'download progress' lable on progress bar
+    - use etag instead of last-modified date
 ~*~ """
 
 import argparse
@@ -31,7 +32,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from urllib.parse import unquote
 
-navpane_ignore = {'Announcements', 'Calendar', 'My Grades'}
+navpane_ignore = {'Announcements', 'Calendar', 'My Grades', 'Blackboard Collaborate'}
 # Last Modified value in the header has a timezone. Once it is
 # converted to a datetime object, the timezone info is lost
 lastmod_parse_fmt = '%a, %d %b %Y %H:%M:%S %Z'
@@ -63,7 +64,7 @@ class Link:
 
     def set_lastmod(self, datestr):
         self.lastmod = datetime.strptime(
-            datestr, lastmod_parse_fmt)
+            datestr.strip(), lastmod_parse_fmt)
 
     def json(self):
         result = {
@@ -127,6 +128,10 @@ def parse_args():
         ' path. Currently, only firefox is supported; that' +
         ' will change in the future')
     parser.add_argument(
+        '-a', '--auto', action='store_true',
+        help='disable user input. The script will continue after' +
+        ' parsing a page')
+    parser.add_argument(
         '-b', '--binary', metavar='file', default=None,
         help='Path to the binary you want to use - use if your' +
         ' browser binary is not in the default location')
@@ -139,6 +144,9 @@ def parse_args():
         args.historypath = args.save / args.historypath
     # sterilize webdriver name
     args.webdriver = args.webdriver.lower().strip()
+    # inform user about auto mode
+    if args.auto:
+        print('running in auto mode')
     return args
 # end parse_args()
 
@@ -369,7 +377,7 @@ def dowload_file(session, link, history):
     # compare link's last modified date to historical date
     if dupe is not None:
         hist_lastmod = datetime.strptime(
-            dupe['lastmod'], lastmod_save_fmt)
+            dupe['lastmod'].strip(), lastmod_save_fmt)
         if link.lastmod <= hist_lastmod:
             return DLResult.DUPLICATE
         else:
@@ -462,11 +470,12 @@ def process_page(page_link, driver, session, history, args):
     except IOError:
         print('failed to save download history! You may want to',
               'investigate before continuing to the next page.')
-    # wait for user input
-    input('Press enter here once you are ready to move on: ')
-    # erase prompt using ansi escape codes since a newline was printed
-    # '\033[A' moves cursor up once, '\033[K' clears the row
-    print('\033[A\033[K', end='\r')
+    if not args.auto:
+        # wait for user input
+        input('Press enter here once you are ready to move on: ')
+        # erase prompt using ansi escape codes since a newline was printed
+        # '\033[A' moves cursor up once, '\033[K' clears the row
+        print('\033[A\033[K', end='\r')
     for folder_link in gather_results['folders']:
         sub_counters = process_page(
             folder_link, driver, session, history, args)
