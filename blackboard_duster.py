@@ -59,8 +59,7 @@ class Link:
         self.full_path = None
 
     def __repr__(self):
-        return '{}\n\t{}\n\t{}'.format(
-            self.url, self.name, self.save_path)
+        return f'{self.url}\n\t{self.name}\n\t{self.save_path}'
 
     def set_lastmod(self, datestr):
         self.lastmod = datetime.strptime(
@@ -304,7 +303,7 @@ def gather_links(page_link, driver, delay_mult=1):
         # in the header holding the name there is a hidden <span> that
         # gets in the way; ignore it by looking for the style attribute
         i_name = item.find_element_by_css_selector('span[style]').text
-        # print('    {}: {}'.format(i_type, i_name))
+        # print(f'    {i_type}: {i_name}'
         if i_type == 'File':
             # files are just a link
             link_element = item.find_element_by_css_selector(
@@ -336,7 +335,7 @@ def gather_links(page_link, driver, delay_mult=1):
             pass
         else:
             # FIXME this is really ugly
-            print('    ** {} is not a supported item'.format(i_type),
+            print(f'    ** {i_type} is not a supported item',
                   ' type - attachments will still be collected **')
 
         # find attachments; Items and Assignments usually have some
@@ -355,7 +354,7 @@ def gather_links(page_link, driver, delay_mult=1):
                 save_path,
                 link_element
             )
-            # print('     - {}'.format(link.name))
+            # print(f'     - {link.name}')
             apply_style(driver, link.element, None)
             results['links'].append(link)
     return results
@@ -441,7 +440,7 @@ def download_links(links, driver, session, history):
         print('Some of the files on this page could not download',
               'beacuse another file was in the way:')
         for link in collided:
-            print('  ~ "{}"'.format(link.full_path))
+            print(f'  ~ "{link.full_path}"')
         print('The associated links are marked with a dotted red',
               'outline if you need to manually download these files.')
     return counters
@@ -458,7 +457,7 @@ def process_page(page_link, driver, session, history, args):
 
     returns a list of counters, indexed by DLResult values
     """
-    print('  {}'.format(page_link.name))
+    print(f'  {page_link.name}')
     driver.get(page_link.url)
     gather_results = gather_links(page_link, driver, args.delay)
     counters = download_links(
@@ -496,8 +495,7 @@ def main():
         # driver = webdriver.Chrome(options=get_ch_options(args))
         driver = webdriver.Chrome()
     else:
-        print('sorry, but {} is not a supported WebDriver. \
-            Aborting'.format(args.webdriver))
+        print(f'sorry, but {args.webdriver} is not a supported WebDriver. Aborting')
         exit()
 
     print("here we go!")
@@ -512,16 +510,15 @@ def main():
     # plus, there might be legal implications
     accept_cookies(driver, args.delay)
     courses = get_courses_info(driver, args.delay, args.save)
-    print('I found {} courses. I will go through each one now!'
-          .format(len(courses)))
+    print(f'I found {len(courses)} courses. I will go through each one now!')
     counters = [0]*len(DLResult)
     for course in courses:
-        print('{}'.format(course.name))
+        print(f'{course.name}')
         navpane = get_navpane_info(driver, course, args.delay)
         for page in navpane:
             # a few pages have no (downloadable) content, skip them
             if page.name in navpane_ignore:
-                print('  *SKIPPED* {}'.format(page.name))
+                print(f'  *SKIPPED* {page.name}')
                 continue
             # TODO skip emails page - different for each school
             page_counters = process_page(
@@ -531,8 +528,7 @@ def main():
     print('#'*get_terminal_size().columns)
     print('I am all done! Here are the stats:')
     for res_code in DLResult:
-        print('  {}: {}'.format(
-            res_code.name, counters[res_code.value]))
+        print(f'  {res_code.name}: {counters[res_code.value]}')
     driver.quit()
 # end main()
 
