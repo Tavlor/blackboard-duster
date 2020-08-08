@@ -29,7 +29,8 @@ TODO:
     - ignore useless navpane elements - add custom ignore arg
     - dump notes from items/assignments into a .txt : use div.details
     - don't abort if navpane is missing, reload or skip
-    TODO UPDATE THE README
+    - put a 'download progress' lable on progress bar
+    - use etag instead of last-modified date
 ~*~ """
 
 import argparse
@@ -48,7 +49,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from urllib.parse import unquote
 
-navpane_ignore = {'Announcements', 'Calendar', 'My Grades'}
+navpane_ignore = {'Announcements', 'Calendar', 'My Grades', 'Blackboard Collaborate'}
 # Last Modified value in the header has a timezone. Once it is
 # converted to a datetime object, the timezone info is lost
 lastmod_parse_fmt = '%a, %d %b %Y %H:%M:%S %Z'
@@ -75,15 +76,11 @@ class Link:
         self.full_path = None
 
     def __repr__(self):
-        return '{}\n\t{}\n\t{}'.format(
-            self.url, self.name, self.save_path)
+        return f'{self.url}\n\t{self.name}\n\t{self.save_path}'
 
     def set_lastmod(self, datestr):
         self.lastmod = datetime.strptime(
-            datestr, lastmod_parse_fmt)
-
-    # def set_full_path(self, path):
-    #     self.full_path = path
+            datestr.strip(), lastmod_parse_fmt)
 
     def json(self):
         result = {
@@ -113,7 +110,7 @@ def apply_style(driver, element, res_code):
         style += '4px dashed cyan'
     elif res_code == DLResult.UPDATED:
         style += '4px solid blue'
-    else:  # UNKNOWN CODE
+    else:  # PENDING DOWNLOAD
         style += '1px dotted magenta'
     driver.execute_script(
         'arguments[0].setAttribute("style", arguments[1]);',
@@ -121,6 +118,8 @@ def apply_style(driver, element, res_code):
 
 
 def parse_args():
+    # TODO full-auto mode
+    # TODO custom page skip list
     parser = argparse.ArgumentParser(
         description='Scrapes files from Blackboard courses')
     parser.add_argument(
@@ -145,19 +144,13 @@ def parse_args():
         ' path. Currently, only firefox is supported; that' +
         ' will change in the future')
     parser.add_argument(
+        '-a', '--auto', action='store_true',
+        help='disable user input. The script will continue after' +
+        ' parsing a page')
+    parser.add_argument(
         '-b', '--binary', metavar='file', default=None,
         help='Path to the binary you want to use - use if your' +
         ' browser binary is not in the default location')
-    # parser.add_argument(
-    #    '-l', '--log', metavar='level',type=int,
-    #    action='store',default=6,
-    #    help='Priority level for logging. 1:debug, 2:info, '
-    #    '3:warning, 4:error, 5:critical. '
-    #    'Any value > 5 disables logging')
-    # parser.add_argument(
-    #    '-p', '--print', metavar='level',type=int,
-    #    action='store',default=0,
-    #    help='Priority level for printing, see --log.')
     args = parser.parse_args()
     # convert given path string into a Path object
     args.save = Path(args.save)
@@ -167,6 +160,9 @@ def parse_args():
         args.historypath = args.save / args.historypath
     # sterilize webdriver name
     args.webdriver = args.webdriver.lower().strip()
+    # inform user about auto mode
+    if args.auto:
+        print('running in auto mode')
     return args
 # end parse_args()
 
@@ -229,7 +225,9 @@ def get_courses_info(driver, delay_mult, save_root):
     expects homepage to already be loaded
     """
     result = []
+    # TODO course announcements are included in the list
     try:
+        # wait for the course list to load
         course_links = WebDriverWait(driver, delay_mult * 10).until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, 'div#div_25_1 a')
@@ -239,8 +237,10 @@ def get_courses_info(driver, delay_mult, save_root):
         print('I did not see your course list! Aborting')
         driver.quit()
         exit()
+    # be more specific when selecting the links - the wait statement's
+    # selector includes announcement links, which we don't want
     course_links = driver.find_elements_by_css_selector(
-        'div#div_25_1 a')
+        'div#div_25_1 > div > ul > li > a')
     for c_l in course_links:
         link = Link(
             c_l.get_attribute('href'),
@@ -268,9 +268,8 @@ def get_navpane_info(driver, course_link, delay_mult):
             )
         )
     except TimeoutException:
-        print('I could not access the navpane! Aborting')
-        driver.quit()
-        exit()
+        print('I could not access the navpane! skipping')
+        return []
     page_link_elements = driver.find_elements_by_css_selector(
         'ul#courseMenuPalette_contents a')
     result = []
@@ -321,7 +320,7 @@ def gather_links(page_link, driver, delay_mult=1):
         # in the header holding the name there is a hidden <span> that
         # gets in the way; ignore it by looking for the style attribute
         i_name = item.find_element_by_css_selector('span[style]').text
-        # print('    {}: {}'.format(i_type, i_name))
+        # print(f'    {i_type}: {i_name}'
         if i_type == 'File':
             # files are just a link
             link_element = item.find_element_by_css_selector(
@@ -332,6 +331,7 @@ def gather_links(page_link, driver, delay_mult=1):
                 page_link.save_path,
                 link_element
             )
+            apply_style(driver, link.element, None)
             results['links'].append(link)
         elif i_type == 'Content Folder':
             # folders contain another page
@@ -345,10 +345,14 @@ def gather_links(page_link, driver, delay_mult=1):
             results['folders'].append(link)
         elif i_type == 'Web Link':
             # TODO dump links into a per-page file (markdown?)
+            # TODO ignore webpages but download files
+            pass
+        elif i_type == 'Item':
+            # TODO dump info into a per-page file (markdown?)
             pass
         else:
             # FIXME this is really ugly
-            print('    ** {} is not a supported item'.format(i_type),
+            print(f'    ** {i_type} is not a supported item',
                   ' type - attachments will still be collected **')
 
         # find attachments; Items and Assignments usually have some
@@ -367,7 +371,8 @@ def gather_links(page_link, driver, delay_mult=1):
                 save_path,
                 link_element
             )
-            # print('     - {}'.format(link.name))
+            # print(f'     - {link.name}')
+            apply_style(driver, link.element, None)
             results['links'].append(link)
     return results
 
@@ -388,7 +393,7 @@ def dowload_file(session, link, history):
     # compare link's last modified date to historical date
     if dupe is not None:
         hist_lastmod = datetime.strptime(
-            dupe['lastmod'], lastmod_save_fmt)
+            dupe['lastmod'].strip(), lastmod_save_fmt)
         if link.lastmod <= hist_lastmod:
             return DLResult.DUPLICATE
         else:
@@ -402,10 +407,13 @@ def dowload_file(session, link, history):
     try:
         with file_path.open('xb') as file:
             file.write(result.content)
+        # FIXME updated files still trigger exception
     except:
         # hang onto the full path to report it later
         link.full_path = file_path
         res_code = DLResult.COLLISION
+        # TODO hash the two files to see if they are the same
+        # FIXME collided files are still added to history, collision is forgotten
     # add link to history or update lastmod
     if dupe is None:
         history['links'].append(link.json())
@@ -440,14 +448,18 @@ def download_links(links, driver, session, history):
         progress = (count + 1) * int(prog_len / len(links))
         print('|{}{}|'.format('#'*progress, '-'*(prog_len-progress)),
               end='\r')
-    # erase progress bar
-    print('{}'.format(' '*get_terminal_size().columns), end='\r')
+    # erase progress bar using a ansi escape code
+    # \033[K' clears the row
+    print('\033[K', end='\r')
+    # TODO let user know how many items downloaded ect
     # let user know what collided
     if len(collided) > 0:
         print('Some of the files on this page could not download',
-              ' beacuse another file was in the way:')
+              'beacuse another file was in the way:')
         for link in collided:
-            print('    {}'.format(link.full_path))
+            print(f'  ~ "{link.full_path}"')
+        print('The associated links are marked with a dotted red',
+              'outline if you need to manually download these files.')
     return counters
 
 
@@ -462,15 +474,24 @@ def process_page(page_link, driver, session, history, args):
 
     returns a list of counters, indexed by DLResult values
     """
+    print(f'  {page_link.name}')
     driver.get(page_link.url)
     gather_results = gather_links(page_link, driver, args.delay)
-    print('I am downloading files from this page now. it may take a while.')
     counters = download_links(
         gather_results['links'], driver, session, history)
-    # wait for user input
-    print('If there is anything that did not download on this page,' +
-          ' take care of it now.')
-    input('Press enter once you are ready.')
+    # save history after every page
+    try:
+        with args.historypath.open('w') as file:
+            json.dump(history, file, indent=4)
+    except IOError:
+        print('failed to save download history! You may want to',
+              'investigate before continuing to the next page.')
+    if not args.auto:
+        # wait for user input
+        input('Press enter here once you are ready to move on: ')
+        # erase prompt using ansi escape codes since a newline was printed
+        # '\033[A' moves cursor up once, '\033[K' clears the row
+        print('\033[A\033[K', end='\r')
     for folder_link in gather_results['folders']:
         sub_counters = process_page(
             folder_link, driver, session, history, args)
@@ -491,8 +512,7 @@ def main():
         # driver = webdriver.Chrome(options=get_ch_options(args))
         driver = webdriver.Chrome()
     else:
-        print('sorry, but {} is not a supported WebDriver. \
-            Aborting'.format(args.webdriver))
+        print(f'sorry, but {args.webdriver} is not a supported WebDriver. Aborting')
         exit()
 
     print("here we go!")
@@ -507,32 +527,25 @@ def main():
     # plus, there might be legal implications
     accept_cookies(driver, args.delay)
     courses = get_courses_info(driver, args.delay, args.save)
-    print('I found {} courses. I will go through each one now!'
-          .format(len(courses)))
+    print(f'I found {len(courses)} courses. I will go through each one now!')
     counters = [0]*len(DLResult)
-    for course in courses[:1]:
+    for course in courses:
+        print(f'{course.name}')
         navpane = get_navpane_info(driver, course, args.delay)
-        for page in navpane[:1]:
+        for page in navpane:
             # a few pages have no (downloadable) content, skip them
             if page.name in navpane_ignore:
-                print('  *SKIPPED* {}'.format(page.name))
+                print(f'  *SKIPPED* {page.name}')
                 continue
             # TODO skip emails page - different for each school
-            print('   {}'.format(page.name))
             page_counters = process_page(
                 page, driver, session, history, args)
             for i, p_ctr in enumerate(page_counters):
                 counters[i] += p_ctr
-            # TODO save history after every page
-    print('Downloads are done! Here are the stats:')
+    print('#'*get_terminal_size().columns)
+    print('I am all done! Here are the stats:')
     for res_code in DLResult:
-        print('  {}: {}'.format(
-            res_code.name, counters[res_code.value]))
-    try:
-        with args.historypath.open('w') as file:
-            json.dump(history, file, indent=4)
-    except IOError:
-        print('failed to save download history!')
+        print(f'  {res_code.name}: {counters[res_code.value]}')
     driver.quit()
 # end main()
 
