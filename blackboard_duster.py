@@ -26,11 +26,10 @@ Notes: Uses Selenium to scrape urls from Blackboard, then urllib to
     download files
 TODO:
     - avoid redundant visit to course home page (just ignore it?)
-    - ignore useless navpane elements - add custom ignore arg
     - dump notes from items/assignments into a .txt : use div.details
     - don't abort if navpane is missing, reload or skip
-    - put a 'download progress' lable on progress bar
-    - use etag instead of last-modified date
+    - put a 'download progress' label on progress bar
+    - use etag instead of last-modified date (note - etag may not always be available)
 ~*~ """
 
 import argparse
@@ -49,7 +48,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from urllib.parse import unquote
 
-navpane_ignore = {'Announcements', 'Calendar', 'My Grades', 'Blackboard Collaborate'}
 # Last Modified value in the header has a timezone. Once it is
 # converted to a datetime object, the timezone info is lost
 lastmod_parse_fmt = '%a, %d %b %Y %H:%M:%S %Z'
@@ -118,8 +116,8 @@ def apply_style(driver, element, res_code):
 
 
 def parse_args():
-    # TODO full-auto mode
-    # TODO custom page skip list
+    navpane_ignore = {'Announcements', 'Calendar',
+                    'My Grades', 'Blackboard Collaborate'}
     parser = argparse.ArgumentParser(
         description='Scrapes files from Blackboard courses')
     parser.add_argument(
@@ -151,6 +149,10 @@ def parse_args():
         '-b', '--binary', metavar='file', default=None,
         help='Path to the binary you want to use - use if your' +
         ' browser binary is not in the default location')
+    parser.add_argument(
+        '-i', '--ignore', metavar='name', action='append',
+        help=f'Name of a page in the navpane to ignore; repeat this argument' +
+        f' to ignore multiple pages. Defaults are {navpane_ignore}')
     args = parser.parse_args()
     # convert given path string into a Path object
     args.save = Path(args.save)
@@ -160,9 +162,12 @@ def parse_args():
         args.historypath = args.save / args.historypath
     # sterilize webdriver name
     args.webdriver = args.webdriver.lower().strip()
+    # combine args.ignore with navpane_ignore
+    if args.ignore:
+        navpane_ignore.update(args.ignore)
+    args.ignore = navpane_ignore
     # inform user about auto mode
-    if args.auto:
-        print('running in auto mode')
+    print(f'running in {"auto" if args.auto else "manual"} mode')
     return args
 # end parse_args()
 
@@ -512,7 +517,8 @@ def main():
         # driver = webdriver.Chrome(options=get_ch_options(args))
         driver = webdriver.Chrome()
     else:
-        print(f'sorry, but {args.webdriver} is not a supported WebDriver. Aborting')
+        print(
+            f'sorry, but {args.webdriver} is not a supported WebDriver. Aborting')
         exit()
 
     print("here we go!")
@@ -524,7 +530,7 @@ def main():
     session = setup_session(driver)
     print('Alright, I can drive from here.')
     # links are visible behind the cookie notice, but it gets annoying
-    # plus, there might be legal implications
+    # plus, there might be legal implications - so accept and move on
     accept_cookies(driver, args.delay)
     courses = get_courses_info(driver, args.delay, args.save)
     print(f'I found {len(courses)} courses. I will go through each one now!')
@@ -534,10 +540,9 @@ def main():
         navpane = get_navpane_info(driver, course, args.delay)
         for page in navpane:
             # a few pages have no (downloadable) content, skip them
-            if page.name in navpane_ignore:
+            if page.name in args.ignore:
                 print(f'  *SKIPPED* {page.name}')
                 continue
-            # TODO skip emails page - different for each school
             page_counters = process_page(
                 page, driver, session, history, args)
             for i, p_ctr in enumerate(page_counters):
