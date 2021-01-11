@@ -507,7 +507,7 @@ def main():
     print("here we go!")
     # choose a nice size - the navpane is invisible at small widths,
     # but selenium can still see its elements
-    driver.set_window_size(1200, 700)
+    driver.set_window_size(600, 500)
     driver.get(args.bb_url)
     manual_login(driver)
     session = setup_session(driver)
