@@ -100,7 +100,7 @@ def apply_style(driver, element, res_code):
 
 def parse_args():
     navpane_ignore = {'Announcements', 'Calendar',
-                    'My Grades', 'Blackboard Collaborate'}
+                      'My Grades', 'Blackboard Collaborate'}
     parser = argparse.ArgumentParser(
         description='Scrapes files from Blackboard courses')
     parser.add_argument(
@@ -153,6 +153,19 @@ def parse_args():
     print(f'running in {"auto" if args.auto else "manual"} mode')
     return args
 # end parse_args()
+
+
+def wait_on_CSS_selector(driver, selector, delay_mult, delay,):
+    """delay until an element is located by the given css selector"""
+    try:
+        WebDriverWait(driver, delay_mult * delay).until(
+            EC.presence_of_element_located((
+                By.CSS_SELECTOR, delay))
+        )
+    except TimeoutException:
+        return False
+    return True
+# end wait_on_CSS_selector
 
 
 def setup_history(path):
@@ -214,14 +227,19 @@ def get_courses_info(driver, delay_mult, save_root):
     """
     result = []
     # TODO course announcements are included in the list
-    try:
-        # wait for the course list to load
-        course_links = WebDriverWait(driver, delay_mult * 10).until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, 'div#div_25_1 a')
-            )
-        )
-    except TimeoutException:
+    # try:
+    #     # wait for the course list to load
+    #     course_links = WebDriverWait(driver, delay_mult * 10).until(
+    #         EC.presence_of_element_located(
+    #             (By.CSS_SELECTOR, 'div#div_25_1 a')
+    #         )
+    #     )
+    # except TimeoutException:
+    #     print('I did not see your course list! Aborting')
+    #     driver.quit()
+    #     exit()
+    if not wait_on_CSS_selector(
+            driver,'div#div_25_1 a',delay_mult,10):
         print('I did not see your course list! Aborting')
         driver.quit()
         exit()
@@ -249,13 +267,17 @@ def get_navpane_info(driver, course_link, delay_mult):
     returns a Link array
     """
     driver.get(course_link.url)
-    try:
-        WebDriverWait(driver, delay_mult * 10).until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, 'ul#courseMenuPalette_contents')
-            )
-        )
-    except TimeoutException:
+    # try:
+    #     WebDriverWait(driver, delay_mult * 10).until(
+    #         EC.presence_of_element_located(
+    #             (By.CSS_SELECTOR, 'ul#courseMenuPalette_contents')
+    #         )
+    #     )
+    # except TimeoutException:
+    #     print('I could not access the navpane! skipping')
+    #     return []
+    if not wait_on_CSS_selector(
+            driver,'ul#courseMenuPalette_contents',delay_mult,10):
         print('I could not access the navpane! skipping')
         return []
     page_link_elements = driver.find_elements_by_css_selector(
@@ -290,13 +312,17 @@ def gather_links(page_link, driver, delay_mult=1):
         'links': [],
         'folders': []
     }
-    try:
-        WebDriverWait(driver, delay_mult * 3).until(
-            EC.presence_of_element_located((
-                By.CSS_SELECTOR,
-                'ul#content_listContainer'))
-        )
-    except TimeoutException:
+    # try:
+    #     WebDriverWait(driver, delay_mult * 3).until(
+    #         EC.presence_of_element_located((
+    #             By.CSS_SELECTOR,
+    #             'ul#content_listContainer'))
+    #     )
+    # except TimeoutException:
+    #     print('This page does not have a content list.')
+    #     return results
+    if not wait_on_CSS_selector(
+            driver,'ul#content_listContainer',delay_mult,3):
         print('This page does not have a content list.')
         return results
     # get a list of all items in the content list
