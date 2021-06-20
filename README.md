@@ -1,5 +1,6 @@
 # Blackboard Duster
 A scraper script for Blackboard, built with python, selenium, and the requests library. It downloads files from your courses, and sorts them neatly into folders.
+**NOTE: I've graduated and don't have access to Blackboard anymore. This repo will not be updated (unless I return to school).** If something's broken, please fork the repo and make fixes there. I'm more than happy to answer questions & help where I can.
 
 ## Requirements
 - Python 3
